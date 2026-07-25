@@ -36,6 +36,7 @@ export interface SyncEngineConfig {
   signEvent: (event: NostrEvent) => Promise<NostrEvent>;
   localStore?: LocalStore;
   onRemoteProgressApplied: (state: ProgressState) => void;
+  onConnectionStatusChange?: (status: 'connecting' | 'connected' | 'offline' | 'error') => void;
   throttleMs?: number; // default: 3000
   reconciliationThresholdSeconds?: number; // default: 300 (5 minutes)
 }
@@ -128,6 +129,7 @@ export class BimodalSyncEngine {
   private reconnectTimeout: any = null;
   private reconnectDelay = 1000;
   private activeSubscriptionId: string | null = null;
+  private isStopped = true;
 
   // Throttling state
   private lastPublishTime = 0;
@@ -138,6 +140,7 @@ export class BimodalSyncEngine {
       throttleMs: 3000,
       reconciliationThresholdSeconds: 300,
       localStore: new MemoryLocalStore(),
+      onConnectionStatusChange: () => undefined,
       ...config,
     };
   }
@@ -147,9 +150,11 @@ export class BimodalSyncEngine {
    * Loads local progress and establishes subscription on the relay.
    */
   async start(documentId: string) {
+    this.isStopped = false;
     this.activeDocumentId = documentId;
     this.currentLocalState = await this.config.localStore.get(documentId);
 
+    this.config.onConnectionStatusChange('connecting');
     this.connect();
   }
 
@@ -157,6 +162,7 @@ export class BimodalSyncEngine {
    * Stops the engine, closing connections and clearing timeouts.
    */
   stop() {
+    this.isStopped = true;
     this.clearPendingPublish();
     this.closeSubscription();
     if (this.ws) {
@@ -203,6 +209,8 @@ export class BimodalSyncEngine {
   }
 
   private connect() {
+    if (this.isStopped || !this.activeDocumentId) return;
+
     if (this.ws) {
       this.ws.close();
     }
@@ -213,6 +221,7 @@ export class BimodalSyncEngine {
       this.ws.onopen = () => {
         this.isConnected = true;
         this.reconnectDelay = 1000; // Reset backoff
+        this.config.onConnectionStatusChange('connected');
         this.subscribeToDocumentProgress();
       };
 
@@ -234,22 +243,27 @@ export class BimodalSyncEngine {
 
       this.ws.onclose = () => {
         this.isConnected = false;
-        this.scheduleReconnect();
+        if (!this.isStopped) {
+          this.config.onConnectionStatusChange('offline');
+          this.scheduleReconnect();
+        }
       };
 
       this.ws.onerror = (err) => {
         console.error("WebSocket error:", err);
+        this.config.onConnectionStatusChange('error');
       };
     } catch (err) {
       console.error("Failed to connect to Nostr relay:", err);
+      this.config.onConnectionStatusChange('error');
       this.scheduleReconnect();
     }
   }
 
   private scheduleReconnect() {
+    if (this.isStopped || !this.activeDocumentId) return;
     if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
     this.reconnectTimeout = setTimeout(() => {
-      console.log(`Reconnecting to relay in ${this.reconnectDelay}ms...`);
       this.connect();
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000); // Exponential backoff up to 30s
     }, this.reconnectDelay);
@@ -288,6 +302,18 @@ export class BimodalSyncEngine {
 
     try {
       const remoteState: ProgressState = JSON.parse(event.content);
+      if (
+        typeof remoteState?.document_id !== 'string' ||
+        !Number.isInteger(remoteState.page_index) ||
+        !Number.isInteger(remoteState.block_index) ||
+        !Number.isInteger(remoteState.word_index) ||
+        !Number.isFinite(remoteState.updated_at) ||
+        remoteState.page_index < 0 ||
+        remoteState.block_index < 0 ||
+        remoteState.word_index < 0
+      ) {
+        return;
+      }
       if (remoteState.document_id !== this.activeDocumentId) return;
 
       const localState = this.currentLocalState;
@@ -364,5 +390,9 @@ export class BimodalSyncEngine {
     } catch (err) {
       console.error("Failed to publish progress to Nostr relay:", err);
     }
+  }
+
+  getConnectionStatus(): 'connected' | 'offline' {
+    return this.isConnected ? 'connected' : 'offline';
   }
 }

@@ -2,8 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { tokenizeBlock, generateSpannedHTML } from '../hooks/useTTS';
 
-// Configure PDF.js worker using unpkg CDN matching the installed version
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+// Bundle the worker with the app so reading remains available offline.
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
 
 interface BimodalPDFViewerProps {
   pdfUrl: string | File;
@@ -120,7 +123,8 @@ export const BimodalPDFViewer: React.FC<BimodalPDFViewerProps> = ({
       }
 
       try {
-        const page = await pdfDoc.getPage(pageIndex + 1); // 1-based page index
+        const pageNumber = Math.min(pdfDoc.numPages, Math.max(1, pageIndex + 1));
+        const page = await pdfDoc.getPage(pageNumber); // PDF.js uses 1-based page indexes.
         if (!active) return;
 
         const viewport = page.getViewport({ scale });

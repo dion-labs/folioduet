@@ -70,6 +70,7 @@ export class TTSEngine {
 
   // Inworld TTS state variables
   private audioPlayer: HTMLAudioElement | null = null;
+  private audioObjectUrl: string | null = null;
   private inworldCache: Map<string, { audioContent: string; timestampInfo: any }> = new Map();
   private isFetchingInworld = false;
   private playPending = false;
@@ -130,7 +131,6 @@ export class TTSEngine {
    * Loads a block of text, tokenizing it into stable visual nodes.
    */
   setBlock(blockIndex: number, text: string) {
-    console.log("🐝 [TTSEngine] setBlock called for block index:", blockIndex, "text snippet:", text.slice(0, 30) + "...");
     this.cleanup();
     this.currentBlockIndex = blockIndex;
     this.currentBlockText = text;
@@ -157,7 +157,6 @@ export class TTSEngine {
   }
 
   private cleanup() {
-    console.log("🐝 [TTSEngine] cleanup called. activeUtterance reset. Canceling synth and custom audio.");
     this.clearFallbackTimer();
     this.activeUtterance = null;
     this.fallbackElapsedOnPause = 0;
@@ -168,6 +167,10 @@ export class TTSEngine {
       this.audioPlayer.pause();
       this.audioPlayer.src = "";
       this.audioPlayer = null;
+    }
+    if (this.audioObjectUrl) {
+      URL.revokeObjectURL(this.audioObjectUrl);
+      this.audioObjectUrl = null;
     }
 
     if (this.synth) {
@@ -183,11 +186,9 @@ export class TTSEngine {
    * Can optionally start from a specific word boundary.
    */
   play(fromWordIndex = 0) {
-    console.log("🐝 [TTSEngine] play called. fromWordIndex:", fromWordIndex, "current tokens count:", this.currentTokens.length);
     this.isPlayingInternal = true;
 
     if (this.currentTokens.length === 0) {
-      console.log("🐝 [TTSEngine] play called on empty block. Resolving immediately.");
       // Empty block, resolve instantly
       this.isPlayingInternal = false;
       this.triggerEnd();
@@ -197,7 +198,7 @@ export class TTSEngine {
     // If Inworld is enabled, route to Inworld engine
     if (this.config.inworldEnabled && this.config.inworldApiKey) {
       const text = this.currentBlockText;
-      const cached = this.inworldCache.get(text);
+      const cached = this.inworldCache.get(this.getInworldCacheKey(text));
       if (cached) {
         this.playInworldCached(cached, fromWordIndex);
       } else {
@@ -215,13 +216,13 @@ export class TTSEngine {
    * Helper to perform high-fidelity Inworld playback from cache
    */
   private playInworldCached(cached: { audioContent: string; timestampInfo: any }, fromWordIndex: number) {
-    console.log("🐝 [TTSEngine] Playing Inworld cached block. fromWordIndex:", fromWordIndex);
     this.cleanup();
     this.isPlayingInternal = true;
 
     try {
       const blob = this.base64ToBlob(cached.audioContent, 'audio/mp3');
       const audioUrl = URL.createObjectURL(blob);
+      this.audioObjectUrl = audioUrl;
 
       // Extract Inworld raw words and timing markers
       const words = cached.timestampInfo?.wordAlignment?.words || [];
@@ -315,7 +316,15 @@ export class TTSEngine {
         };
       });
 
-      console.log("🐝 [TTSEngine] Fully mapped Inworld tokens count:", this.currentTokensWithTimestamps.length);
+      const usableTimestampCount = this.currentTokensWithTimestamps.filter((token) => (
+        Number.isFinite(token.startTime) &&
+        Number.isFinite(token.endTime) &&
+        token.endTime > token.startTime
+      )).length;
+
+      if (usableTimestampCount === 0) {
+        throw new Error('Inworld returned no usable word timestamps.');
+      }
 
       const player = new Audio(audioUrl);
       this.audioPlayer = player;
@@ -326,16 +335,15 @@ export class TTSEngine {
         if (this.currentTokensWithTimestamps.length > 0 && fromWordIndex > 0) {
           const token = this.currentTokensWithTimestamps[fromWordIndex];
           if (token) {
-            console.log("🐝 [TTSEngine] Seeking Inworld audio to start time:", token.startTime, "for word index:", fromWordIndex);
             player.currentTime = token.startTime;
           }
         }
       };
 
       player.onended = () => {
-        console.log("🐝 [TTSEngine] Inworld audio player ended naturally.");
         this.stopInworldTracking();
         URL.revokeObjectURL(audioUrl);
+        if (this.audioObjectUrl === audioUrl) this.audioObjectUrl = null;
         if (this.audioPlayer === player) {
           this.audioPlayer = null;
           this.triggerEnd();
@@ -345,6 +353,7 @@ export class TTSEngine {
       player.onerror = (e) => {
         console.error("🐝 [TTSEngine] Inworld audio player error:", e);
         URL.revokeObjectURL(audioUrl);
+        if (this.audioObjectUrl === audioUrl) this.audioObjectUrl = null;
         this.stopInworldTracking();
         if (this.audioPlayer === player) {
           this.audioPlayer = null;
@@ -356,7 +365,6 @@ export class TTSEngine {
       const playPromise = player.play();
       if (playPromise !== undefined) {
         playPromise.then(() => {
-          console.log("🐝 [TTSEngine] Inworld audio playback started successfully.");
           this.startInworldTracking();
         }).catch(err => {
           console.error("🐝 [TTSEngine] play() failed:", err);
@@ -376,8 +384,6 @@ export class TTSEngine {
   private async fetchInworld(text: string, fromWordIndex: number) {
     if (this.isFetchingInworld) return;
     this.isFetchingInworld = true;
-    console.log("🐝 [TTSEngine] Fetching TTS from Inworld API. Voice:", this.config.inworldVoiceId, "Text:", text.slice(0, 40) + "...");
-
     try {
       const apiKey = this.config.inworldApiKey || "";
       const authHeader = apiKey.startsWith("Basic ") ? apiKey : `Basic ${apiKey}`;
@@ -411,9 +417,7 @@ export class TTSEngine {
         throw new Error("No audioContent returned from Inworld API");
       }
 
-      console.log("🐝 [TTSEngine] Successfully fetched Inworld TTS. Audio length (base64):", data.audioContent.length);
-
-      this.inworldCache.set(text, {
+      this.inworldCache.set(this.getInworldCacheKey(text), {
         audioContent: data.audioContent,
         timestampInfo: data.timestampInfo,
       });
@@ -445,9 +449,9 @@ export class TTSEngine {
    * Helper to pre-fetch Inworld audio in the background
    */
   private prefetchInworld(text: string) {
-    if (!text || this.inworldCache.has(text) || this.isFetchingInworld) return;
+    const cacheKey = this.getInworldCacheKey(text);
+    if (!text || this.inworldCache.has(cacheKey) || this.isFetchingInworld) return;
 
-    console.log("🐝 [TTSEngine] Pre-fetching Inworld TTS in background for block.");
     const apiKey = this.config.inworldApiKey || "";
     const authHeader = apiKey.startsWith("Basic ") ? apiKey : `Basic ${apiKey}`;
 
@@ -474,8 +478,7 @@ export class TTSEngine {
     })
     .then(data => {
       if (data && data.audioContent) {
-        console.log("🐝 [TTSEngine] Background pre-fetch success for text block.");
-        this.inworldCache.set(text, {
+        this.inworldCache.set(cacheKey, {
           audioContent: data.audioContent,
           timestampInfo: data.timestampInfo,
         });
@@ -486,12 +489,14 @@ export class TTSEngine {
     });
   }
 
+  private getInworldCacheKey(text: string): string {
+    return `${this.config.inworldVoiceId || 'Ashley'}\u0000${text}`;
+  }
+
   /**
    * Standard browser SpeechSynthesis playback flow (serving as primary native & error fallback)
    */
   private playNativeFallback(fromWordIndex: number) {
-    console.log("🐝 [TTSEngine] Executing native SpeechSynthesis play from index:", fromWordIndex);
-
     const startIndex = Math.max(0, Math.min(fromWordIndex, this.currentTokens.length - 1));
     this.activeWordIndex = startIndex;
 
@@ -501,7 +506,6 @@ export class TTSEngine {
     this.cleanup();
 
     if (!this.synth || this.config.forceSimulation) {
-      console.log("🐝 [TTSEngine] Using simulation mode or no native SpeechSynthesis support.");
       if (this.config.forceSimulation) {
         this.startFallbackTimer(startIndex);
         return;
@@ -512,8 +516,6 @@ export class TTSEngine {
     }
 
     const textToSpeak = this.currentBlockText.slice(this.startCharOffset);
-    console.log("🐝 [TTSEngine] Fallback native TTS slice length:", textToSpeak.length);
-
     const utterance = new SpeechSynthesisUtterance(textToSpeak);
     this.activeUtterance = utterance;
 
@@ -575,7 +577,6 @@ export class TTSEngine {
    * Pauses active speech synthesis.
    */
   pause() {
-    console.log("🐝 [TTSEngine] pause called.");
     if (this.config.inworldEnabled && this.config.inworldApiKey && this.audioPlayer) {
       this.audioPlayer.pause();
       this.stopInworldTracking();
@@ -585,8 +586,6 @@ export class TTSEngine {
 
     if (this.synth && this.synth.speaking && !this.synth.paused) {
       this.synth.pause();
-      console.log("🐝 [TTSEngine] synth.pause() invoked.");
-
       // Pause simulation metrics
       if (!this.hasReceivedBoundaryEvent && this.fallbackTimer) {
         this.fallbackElapsedOnPause += Date.now() - this.fallbackStartTime;
@@ -601,7 +600,6 @@ export class TTSEngine {
    * Resumes paused speech synthesis.
    */
   resume() {
-    console.log("🐝 [TTSEngine] resume called.");
     if (this.config.inworldEnabled && this.config.inworldApiKey && this.audioPlayer) {
       this.audioPlayer.play().then(() => {
         this.startInworldTracking();
@@ -614,8 +612,6 @@ export class TTSEngine {
 
     if (this.synth && this.synth.paused) {
       this.synth.resume();
-      console.log("🐝 [TTSEngine] synth.resume() invoked.");
-
       // Resume simulation
       if (!this.hasReceivedBoundaryEvent && this.activeWordIndex !== -1) {
         this.startFallbackTimer(this.activeWordIndex);
@@ -629,7 +625,6 @@ export class TTSEngine {
    * Stops speaking and resets pointers.
    */
   stop() {
-    console.log("🐝 [TTSEngine] stop called. Setting isPlayingInternal to false and triggering cleanup.");
     this.isPlayingInternal = false;
     this.playPending = false;
     this.stopInworldTracking();
@@ -646,7 +641,6 @@ export class TTSEngine {
   }
 
   updateConfig(newConfig: Partial<TTSEngineConfig>) {
-    console.log("🐝 [TTSEngine] updateConfig called with keys:", Object.keys(newConfig));
     this.config = {
       ...this.config,
       ...newConfig,
@@ -664,7 +658,6 @@ export class TTSEngine {
 
     // If playing and not paused, restart native engine with new configs from current position
     if (this.isPlayingInternal && !this.config.inworldEnabled && this.synth && !this.synth.paused) {
-      console.log("🐝 [TTSEngine] updateConfig: Engine was actively playing, restarting with new configs from index:", this.activeWordIndex);
       this.play(this.activeWordIndex);
     }
   }
@@ -702,7 +695,7 @@ export class TTSEngine {
     let activeTokenIndex = -1;
     for (let i = 0; i < this.currentTokensWithTimestamps.length; i++) {
       const t = this.currentTokensWithTimestamps[i];
-      if (currentTime >= t.startTime && currentTime <= t.endTime) {
+      if (t.endTime > t.startTime && currentTime >= t.startTime && currentTime <= t.endTime) {
         activeTokenIndex = i;
         break;
       }
@@ -711,7 +704,8 @@ export class TTSEngine {
     // Fallback: find the last word whose startTime has passed
     if (activeTokenIndex === -1) {
       for (let i = 0; i < this.currentTokensWithTimestamps.length; i++) {
-        if (currentTime >= this.currentTokensWithTimestamps[i].startTime) {
+        const token = this.currentTokensWithTimestamps[i];
+        if (token.endTime > token.startTime && currentTime >= token.startTime) {
           activeTokenIndex = i;
         }
       }
@@ -807,6 +801,7 @@ export class TTSEngine {
   }
 
   private triggerEnd() {
+    this.isPlayingInternal = false;
     this.activeWordIndex = -1;
     if (this.config.onEnd) {
       this.config.onEnd();
