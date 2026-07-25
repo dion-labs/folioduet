@@ -1,5 +1,8 @@
 node_modules/
 dist/
+data/
+.env
+.env.local
 *.tsbuildinfo
 .DS_Store
 .scratch/

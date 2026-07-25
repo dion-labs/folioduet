@@ -55,6 +55,7 @@ import type {
   ReaderPreferences,
   ReaderView,
   SyncStatus,
+  TtsServerStatus,
 } from './types';
 import { useContinuousTTS } from './useContinuousTTS';
 import './styles.css';
@@ -109,6 +110,7 @@ export default function AppV2() {
 
   const [preferences, setPreferences] = useState<ReaderPreferences>(loadPreferences);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('disabled');
+  const [ttsServerStatus, setTtsServerStatus] = useState<TtsServerStatus>('checking');
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [libraryOpen, setLibraryOpen] = useState(true);
@@ -166,10 +168,9 @@ export default function AppV2() {
     rate: preferences.playbackRate,
     volume: preferences.volume,
     inworldEnabled: preferences.inworldEnabled,
-    inworldApiKey: preferences.inworldApiKey,
+    inworldEndpoint: '/api/tts/synthesize',
     inworldVoiceId: preferences.inworldVoiceId,
   }), [
-    preferences.inworldApiKey,
     preferences.inworldEnabled,
     preferences.inworldVoiceId,
     preferences.playbackRate,
@@ -199,6 +200,25 @@ export default function AppV2() {
   useEffect(() => {
     savePreferences(preferences);
   }, [preferences]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/health')
+      .then((response) => {
+        if (!response.ok) throw new Error('Cache server unavailable.');
+        return response.json();
+      })
+      .then((health) => {
+        if (!active) return;
+        setTtsServerStatus(health.inworldConfigured ? 'ready' : 'missing-credential');
+      })
+      .catch(() => {
+        if (active) setTtsServerStatus('offline');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => () => {
     flushProgress();
@@ -744,7 +764,7 @@ export default function AppV2() {
                 <div className="pe-playback-info">
                   <span className="pe-audio-art"><Volume2 size={18} /></span>
                   <div>
-                    <strong>{preferences.inworldEnabled && preferences.inworldApiKey ? preferences.inworldVoiceId : 'System voice'}</strong>
+                    <strong>{preferences.inworldEnabled ? preferences.inworldVoiceId : 'System voice'}</strong>
                     <span>
                       {tts.lastError
                         ? 'Neural voice unavailable · using system fallback'
@@ -855,6 +875,7 @@ export default function AppV2() {
       <SettingsPanel
         open={settingsOpen}
         preferences={preferences}
+        ttsServerStatus={ttsServerStatus}
         syncStatus={syncStatus}
         hasNostrSigner={hasSigner}
         onChange={setPreferences}

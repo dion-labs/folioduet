@@ -130,6 +130,7 @@ export interface TTSEngineConfig {
   // Inworld TTS configurations
   inworldEnabled?: boolean;
   inworldApiKey?: string;
+  inworldEndpoint?: string;
   inworldVoiceId?: string;
 }
 
@@ -160,7 +161,7 @@ export class TTSEngine {
   }[] = [];
 
   // Configuration options
-  private config: Required<Omit<TTSEngineConfig, 'onWordBoundary' | 'onEnd' | 'onError' | 'onPause' | 'onResume' | 'onStop' | 'inworldEnabled' | 'inworldApiKey' | 'inworldVoiceId'>> & {
+  private config: Required<Omit<TTSEngineConfig, 'onWordBoundary' | 'onEnd' | 'onError' | 'onPause' | 'onResume' | 'onStop' | 'inworldEnabled' | 'inworldApiKey' | 'inworldEndpoint' | 'inworldVoiceId'>> & {
     onWordBoundary: TTSEngineConfig['onWordBoundary'];
     onEnd: TTSEngineConfig['onEnd'];
     onError: TTSEngineConfig['onError'];
@@ -169,6 +170,7 @@ export class TTSEngine {
     onStop: TTSEngineConfig['onStop'];
     inworldEnabled?: boolean;
     inworldApiKey?: string;
+    inworldEndpoint?: string;
     inworldVoiceId?: string;
   };
 
@@ -197,6 +199,7 @@ export class TTSEngine {
       onStop: undefined,
       inworldEnabled: false,
       inworldApiKey: "",
+      inworldEndpoint: "",
       inworldVoiceId: "Ashley",
       ...config,
     };
@@ -215,7 +218,7 @@ export class TTSEngine {
     this.startCharOffset = 0;
 
     // Background pre-fetch Inworld audio to make transitions instantaneous
-    if (this.config.inworldEnabled && this.config.inworldApiKey) {
+    if (this.hasInworldRoute()) {
       const firstChunk = splitTextForInworld(text)[0];
       if (firstChunk) this.prefetchInworld(firstChunk.text);
     }
@@ -240,8 +243,7 @@ export class TTSEngine {
    */
   preloadBlocks(blocks: string[], maxBlocks = 3) {
     if (
-      !this.config.inworldEnabled ||
-      !this.config.inworldApiKey ||
+      !this.hasInworldRoute() ||
       !Number.isInteger(maxBlocks) ||
       maxBlocks < 1
     ) {
@@ -298,7 +300,7 @@ export class TTSEngine {
     }
 
     // If Inworld is enabled, route to Inworld engine
-    if (this.config.inworldEnabled && this.config.inworldApiKey) {
+    if (this.hasInworldRoute()) {
       const chunks = splitTextForInworld(this.currentBlockText);
       const chunkIndex = this.findInworldChunkIndex(chunks, fromWordIndex);
       void this.playInworldChunk(chunks, chunkIndex, fromWordIndex, requestId);
@@ -575,15 +577,18 @@ export class TTSEngine {
     if (existingRequest) return existingRequest;
 
     const request = (async () => {
-      const apiKey = this.config.inworldApiKey || "";
-      const authHeader = apiKey.startsWith("Basic ") ? apiKey : `Basic ${apiKey}`;
+      const endpoint = this.config.inworldEndpoint || "https://api.inworld.ai/tts/v1/voice";
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (!this.config.inworldEndpoint) {
+        const apiKey = this.config.inworldApiKey || "";
+        headers.Authorization = apiKey.startsWith("Basic ") ? apiKey : `Basic ${apiKey}`;
+      }
 
-      const response = await fetch("https://api.inworld.ai/tts/v1/voice", {
+      const response = await fetch(endpoint, {
         method: "POST",
-        headers: {
-          "Authorization": authHeader,
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           text: text,
           voiceId: this.config.inworldVoiceId || "Ashley",
@@ -636,6 +641,13 @@ export class TTSEngine {
 
   private getInworldCacheKey(text: string): string {
     return `${this.config.inworldVoiceId || 'Ashley'}\u0000${text}`;
+  }
+
+  private hasInworldRoute(): boolean {
+    return Boolean(
+      this.config.inworldEnabled &&
+      (this.config.inworldEndpoint || this.config.inworldApiKey),
+    );
   }
 
   /**
@@ -722,7 +734,7 @@ export class TTSEngine {
    * Pauses active speech synthesis.
    */
   pause() {
-    if (this.config.inworldEnabled && this.config.inworldApiKey && this.audioPlayer) {
+    if (this.hasInworldRoute() && this.audioPlayer) {
       this.audioPlayer.pause();
       this.stopInworldTracking();
       if (this.config.onPause) this.config.onPause();
@@ -745,7 +757,7 @@ export class TTSEngine {
    * Resumes paused speech synthesis.
    */
   resume() {
-    if (this.config.inworldEnabled && this.config.inworldApiKey && this.audioPlayer) {
+    if (this.hasInworldRoute() && this.audioPlayer) {
       this.audioPlayer.play().then(() => {
         this.startInworldTracking();
         if (this.config.onResume) this.config.onResume();
@@ -792,7 +804,7 @@ export class TTSEngine {
     };
     
     // Update volume and speed dynamically if playing Inworld audio
-    if (this.config.inworldEnabled && this.config.inworldApiKey && this.audioPlayer) {
+    if (this.hasInworldRoute() && this.audioPlayer) {
       if (typeof newConfig.volume === 'number') {
         this.audioPlayer.volume = newConfig.volume;
       }

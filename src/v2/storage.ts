@@ -4,7 +4,6 @@ import type { LibraryDocument, ReaderPreferences } from './types';
 const LIBRARY_KEY = 'bimodal-library';
 const ACTIVE_DOCUMENT_KEY = 'bimodal-active-doc';
 const PREFERENCES_KEY = 'pageecho-v2-preferences';
-const INWORLD_SESSION_KEY = 'pageecho-inworld-session-key';
 
 const defaultPreferences: ReaderPreferences = {
   appearance: 'dark',
@@ -12,7 +11,6 @@ const defaultPreferences: ReaderPreferences = {
   playbackRate: 1,
   volume: 1,
   inworldEnabled: false,
-  inworldApiKey: '',
   inworldVoiceId: 'Ashley',
   relayUrl: 'wss://relay.damus.io',
   syncEnabled: false,
@@ -91,10 +89,6 @@ export function loadPreferences(): ReaderPreferences {
         appearance: localStorage.getItem('bimodal-dark-mode') === 'false' ? 'light' : 'dark',
         volume: Number(localStorage.getItem('bimodal-tts-volume')) || 1,
         inworldEnabled: localStorage.getItem('bimodal-inworld-enabled') === 'true',
-        inworldApiKey:
-          sessionStorage.getItem(INWORLD_SESSION_KEY) ||
-          localStorage.getItem('bimodal-inworld-apikey') ||
-          '',
         inworldVoiceId: localStorage.getItem('bimodal-inworld-voiceid') || 'Ashley',
         relayUrl: localStorage.getItem('bimodal-relay-url') || defaultPreferences.relayUrl,
       };
@@ -103,16 +97,13 @@ export function loadPreferences(): ReaderPreferences {
     const parsed: unknown = JSON.parse(saved);
     if (!isRecord(parsed)) return defaultPreferences;
 
+    const { inworldApiKey: _legacyBrowserCredential, ...safeParsed } = parsed;
     return {
       ...defaultPreferences,
-      ...parsed,
-      inworldApiKey:
-        sessionStorage.getItem(INWORLD_SESSION_KEY) ||
-        localStorage.getItem('bimodal-inworld-apikey') ||
-        '',
-      fontScale: asNumber(parsed.fontScale, 1),
-      playbackRate: asNumber(parsed.playbackRate, 1),
-      volume: asNumber(parsed.volume, 1),
+      ...safeParsed,
+      fontScale: asNumber(safeParsed.fontScale, 1),
+      playbackRate: asNumber(safeParsed.playbackRate, 1),
+      volume: asNumber(safeParsed.volume, 1),
     } as ReaderPreferences;
   } catch {
     return defaultPreferences;
@@ -120,13 +111,7 @@ export function loadPreferences(): ReaderPreferences {
 }
 
 export function savePreferences(preferences: ReaderPreferences): void {
-  const { inworldApiKey, ...persistedPreferences } = preferences;
-  localStorage.setItem(PREFERENCES_KEY, JSON.stringify(persistedPreferences));
-  if (inworldApiKey) {
-    sessionStorage.setItem(INWORLD_SESSION_KEY, inworldApiKey);
-  } else {
-    sessionStorage.removeItem(INWORLD_SESSION_KEY);
-  }
+  localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
 }
 
 export async function saveSourceFile(documentId: string, file: File): Promise<void> {

@@ -3,11 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
-    "dev": "vite",
+    "dev": "node server/dev.mjs",
+    "dev:client": "vite",
+    "dev:server": "node server/index.mjs",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server/index.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",

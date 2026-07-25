@@ -77,7 +77,7 @@ describe('TTSEngine preloading', () => {
 
     const engine = new TTSEngine({
       inworldEnabled: true,
-      inworldApiKey: 'test-key',
+      inworldEndpoint: '/api/tts/synthesize',
       inworldVoiceId: 'Ashley',
     });
     const longBlock = `${'Long sentence for preloading. '.repeat(100)}tail`;
@@ -91,5 +91,8 @@ describe('TTSEngine preloading', () => {
     expect(requestTexts[0].length).toBeLessThanOrEqual(1900);
     expect(longBlock.startsWith(requestTexts[0])).toBe(true);
     expect(requestTexts[1]).toBe('next page');
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toEqual({
+      'Content-Type': 'application/json',
+    });
   });
 });

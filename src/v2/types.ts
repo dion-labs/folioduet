@@ -32,15 +32,19 @@ export type SyncStatus =
   | 'offline'
   | 'error';
 
+export type TtsServerStatus =
+  | 'checking'
+  | 'ready'
+  | 'missing-credential'
+  | 'offline';
+
 export interface ReaderPreferences {
   appearance: 'light' | 'dark';
   fontScale: number;
   playbackRate: number;
   volume: number;
   inworldEnabled: boolean;
-  inworldApiKey: string;
   inworldVoiceId: string;
   relayUrl: string;
   syncEnabled: boolean;
 }
-

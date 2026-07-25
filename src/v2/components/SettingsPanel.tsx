@@ -1,9 +1,10 @@
 import { Moon, ShieldCheck, Sun, X } from 'lucide-react';
-import type { ReaderPreferences, SyncStatus } from '../types';
+import type { ReaderPreferences, SyncStatus, TtsServerStatus } from '../types';
 
 interface SettingsPanelProps {
   open: boolean;
   preferences: ReaderPreferences;
+  ttsServerStatus: TtsServerStatus;
   syncStatus: SyncStatus;
   hasNostrSigner: boolean;
   onChange: (preferences: ReaderPreferences) => void;
@@ -13,6 +14,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({
   open,
   preferences,
+  ttsServerStatus,
   syncStatus,
   hasNostrSigner,
   onChange,
@@ -59,8 +61,8 @@ export function SettingsPanel({
         <section className="pe-settings-section">
           <div className="pe-setting-heading">
             <div>
-              <h3>Inworld voice</h3>
-              <p>Word timestamps drive precise highlighting.</p>
+              <h3>Persistent neural voice</h3>
+              <p>Word timestamps and audio are cached by the PageEcho server.</p>
             </div>
             <label className="pe-switch">
               <input
@@ -79,19 +81,17 @@ export function SettingsPanel({
               placeholder="Ashley"
             />
           </label>
-          <label className="pe-field">
-            <span>Basic credential</span>
-            <input
-              type="password"
-              value={preferences.inworldApiKey}
-              onChange={(event) => update('inworldApiKey', event.target.value)}
-              placeholder="Base64 credential"
-              autoComplete="off"
-            />
-          </label>
           <div className="pe-security-note">
             <ShieldCheck size={17} />
-            <p>Direct credentials are held for this browser session and are for local prototyping only. A production deployment should exchange them for a short-lived JWT through a trusted backend.</p>
+            <p>
+              {ttsServerStatus === 'ready'
+                ? 'Server cache ready. Only missing chunks are synthesized; repeat playback reuses stored audio and timestamps.'
+                : ttsServerStatus === 'missing-credential'
+                ? 'Cache server is online. Set INWORLD_API_KEY in .env.local, then restart it to synthesize missing chunks.'
+                : ttsServerStatus === 'offline'
+                ? 'Cache server is offline. Start PageEcho with npm run dev.'
+                : 'Checking the local cache server…'}
+            </p>
           </div>
         </section>
 
