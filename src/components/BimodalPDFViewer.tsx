@@ -15,6 +15,7 @@ interface BimodalPDFViewerProps {
   activeWordIndex: number | null;
   scale: number;
   onTextExtracted: (blocks: string[]) => void;
+  onNextPageTextExtracted?: (pageIndex: number, blocks: string[]) => void;
   onWordTap: (blockIndex: number, wordIndex: number) => void;
   onPageLoadSuccess: (numPages: number) => void;
   isPlaying?: boolean;
@@ -30,6 +31,7 @@ export const BimodalPDFViewer: React.FC<BimodalPDFViewerProps> = ({
   activeWordIndex,
   scale,
   onTextExtracted,
+  onNextPageTextExtracted,
   onWordTap,
   onPageLoadSuccess,
   isPlaying = false,
@@ -50,10 +52,12 @@ export const BimodalPDFViewer: React.FC<BimodalPDFViewerProps> = ({
 
   const onPageLoadSuccessRef = useRef(onPageLoadSuccess);
   const onTextExtractedRef = useRef(onTextExtracted);
+  const onNextPageTextExtractedRef = useRef(onNextPageTextExtracted);
 
   useEffect(() => {
     onPageLoadSuccessRef.current = onPageLoadSuccess;
     onTextExtractedRef.current = onTextExtracted;
+    onNextPageTextExtractedRef.current = onNextPageTextExtracted;
   });
 
   // Load PDF Document
@@ -172,6 +176,21 @@ export const BimodalPDFViewer: React.FC<BimodalPDFViewerProps> = ({
           const blocks = textContent.items.map((item: any) => item.str);
           if (onTextExtractedRef.current) {
             onTextExtractedRef.current(blocks);
+          }
+
+          if (pageNumber < pdfDoc.numPages && onNextPageTextExtractedRef.current) {
+            void pdfDoc.getPage(pageNumber + 1)
+              .then((nextPage) => nextPage.getTextContent())
+              .then((nextTextContent) => {
+                if (!active || !onNextPageTextExtractedRef.current) return;
+                const nextBlocks = nextTextContent.items.map((item: any) => item.str);
+                onNextPageTextExtractedRef.current(pageNumber, nextBlocks);
+              })
+              .catch((nextPageError) => {
+                if (active) {
+                  console.warn('Could not preload the next PDF text layer:', nextPageError);
+                }
+              });
           }
 
           const textLayer = new pdfjsLib.TextLayer({

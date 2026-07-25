@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { splitTextForInworld } from './TTSEngine';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { splitTextForInworld, TTSEngine } from './TTSEngine';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('splitTextForInworld', () => {
   it('keeps every request below the conservative Inworld limit', () => {
@@ -57,5 +61,35 @@ describe('splitTextForInworld', () => {
     expect(() => splitTextForInworld('text', 0)).toThrow(
       'Inworld chunk length must be a positive integer.',
     );
+  });
+});
+
+describe('TTSEngine preloading', () => {
+  it('warms only the first safe chunk of each upcoming block', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        audioContent: 'audio',
+        timestampInfo: {},
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = new TTSEngine({
+      inworldEnabled: true,
+      inworldApiKey: 'test-key',
+      inworldVoiceId: 'Ashley',
+    });
+    const longBlock = `${'Long sentence for preloading. '.repeat(100)}tail`;
+
+    engine.preloadBlocks(['', longBlock, 'next page', 'outside budget'], 2);
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const requestTexts = fetchMock.mock.calls.map(([, request]) => (
+      JSON.parse((request as RequestInit).body as string).text as string
+    ));
+    expect(requestTexts[0].length).toBeLessThanOrEqual(1900);
+    expect(longBlock.startsWith(requestTexts[0])).toBe(true);
+    expect(requestTexts[1]).toBe('next page');
   });
 });

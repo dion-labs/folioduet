@@ -99,6 +99,7 @@ export default function AppV2() {
   const [savedWordIndex, setSavedWordIndex] = useState(() => activeDocument?.activeWordIndex ?? 0);
   const [readerView, setReaderView] = useState<ReaderView>('reading');
   const [pageContent, setPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
+  const [nextPageContent, setNextPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
   const [markdownBlocks, setMarkdownBlocks] = useState<MarkdownBlock[]>([]);
   const [zipPages, setZipPages] = useState<string[] | null>(null);
   const [source, setSource] = useState<File | string | null>(null);
@@ -178,6 +179,8 @@ export default function AppV2() {
   const tts = useContinuousTTS({
     blocks: pageContent.blocks,
     blocksPageIndex: pageContent.pageIndex,
+    nextPageBlocks: nextPageContent.blocks,
+    nextBlocksPageIndex: nextPageContent.pageIndex,
     pageIndex,
     totalPages: activeDocument?.totalPages ?? 1,
     config: ttsConfig,
@@ -214,6 +217,7 @@ export default function AppV2() {
     setPairedPdf(null);
     setSource(null);
     setPageContent({ pageIndex: -1, blocks: [] });
+    setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
 
     if (!activeDocument) return () => { active = false; };
@@ -262,6 +266,14 @@ export default function AppV2() {
     const prepared = prepareMarkdownPage(markdown, activeDocument.name);
     setMarkdownBlocks(prepared.renderedBlocks);
     setPageContent({ pageIndex: nextPageIndex, blocks: prepared.speakableBlocks });
+
+    const nextMarkdown = zipPages[nextPageIndex + 1];
+    setNextPageContent(nextMarkdown === undefined
+      ? { pageIndex: -1, blocks: [] }
+      : {
+          pageIndex: nextPageIndex + 1,
+          blocks: prepareMarkdownPage(nextMarkdown, activeDocument.name).speakableBlocks,
+        });
   }, [activeDocument?.id, activeDocument?.kind, activeDocument?.name, pageIndex, zipPages]);
 
   const changePage = useCallback((requestedPage: number, sourceOfChange: PageChangeSource) => {
@@ -273,6 +285,7 @@ export default function AppV2() {
     setSavedBlockIndex(0);
     setSavedWordIndex(0);
     setPageContent({ pageIndex: -1, blocks: [] });
+    setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
     updateDocument(activeDocument.id, {
       currentPageIndex: nextPage,
@@ -298,6 +311,7 @@ export default function AppV2() {
       setSavedBlockIndex(state.block_index);
       setSavedWordIndex(state.word_index);
       setPageContent({ pageIndex: -1, blocks: [] });
+      setNextPageContent({ pageIndex: -1, blocks: [] });
       updateDocument(activeDocument.id, {
         currentPageIndex: remotePage,
         activeBlockIndex: state.block_index,
@@ -420,6 +434,12 @@ export default function AppV2() {
 
   const handlePdfTextExtracted = useCallback((blocks: string[]) => {
     setPageContent({ pageIndex, blocks });
+  }, [pageIndex]);
+
+  const handleNextPdfTextExtracted = useCallback((nextPageIndex: number, blocks: string[]) => {
+    if (nextPageIndex === pageIndex + 1) {
+      setNextPageContent({ pageIndex: nextPageIndex, blocks });
+    }
   }, [pageIndex]);
 
   const handlePdfLoaded = useCallback((totalPages: number) => {
@@ -649,6 +669,7 @@ export default function AppV2() {
                       activeWordIndex={displayWordIndex}
                       scale={Math.max(0.7, preferences.fontScale)}
                       onTextExtracted={handlePdfTextExtracted}
+                      onNextPageTextExtracted={handleNextPdfTextExtracted}
                       onWordTap={(blockIndex, wordIndex) => tts.play(blockIndex, wordIndex)}
                       onPageLoadSuccess={handlePdfLoaded}
                       isPlaying={tts.isPlaying}
@@ -708,6 +729,7 @@ export default function AppV2() {
                       activeWordIndex={null}
                       scale={1}
                       onTextExtracted={handlePdfTextExtracted}
+                      onNextPageTextExtracted={handleNextPdfTextExtracted}
                       onWordTap={() => undefined}
                       onPageLoadSuccess={handlePdfLoaded}
                     />

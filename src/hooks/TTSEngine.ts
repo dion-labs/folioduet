@@ -233,6 +233,30 @@ export class TTSEngine {
     return this.activeWordIndex;
   }
 
+  /**
+   * Warms the first audio chunk for upcoming logical blocks. Callers provide
+   * blocks in playback priority order; duplicate and already-cached requests
+   * are coalesced by fetchInworldAudio.
+   */
+  preloadBlocks(blocks: string[], maxBlocks = 3) {
+    if (
+      !this.config.inworldEnabled ||
+      !this.config.inworldApiKey ||
+      !Number.isInteger(maxBlocks) ||
+      maxBlocks < 1
+    ) {
+      return;
+    }
+
+    blocks
+      .filter((block) => block.trim())
+      .slice(0, maxBlocks)
+      .forEach((block) => {
+        const firstChunk = splitTextForInworld(block)[0];
+        if (firstChunk) this.prefetchInworld(firstChunk.text);
+      });
+  }
+
   private cleanup() {
     this.clearFallbackTimer();
     this.activeUtterance = null;
@@ -470,8 +494,6 @@ export class TTSEngine {
       if (playPromise !== undefined) {
         playPromise.then(() => {
           this.startInworldTracking();
-          const nextChunk = chunks[chunkIndex + 1];
-          if (nextChunk) this.prefetchInworld(nextChunk.text);
         }).catch(err => {
           console.error("🐝 [TTSEngine] play() failed:", err);
           console.warn("🐝 [TTSEngine] Falling back to native SpeechSynthesis due to play rejection.");
@@ -514,6 +536,8 @@ export class TTSEngine {
     const blockIndex = this.currentBlockIndex;
     const blockText = this.currentBlockText;
     this.activeWordIndex = fromWordIndex;
+    const nextChunk = chunks[chunkIndex + 1];
+    if (nextChunk) this.prefetchInworld(nextChunk.text);
 
     try {
       const cached = await this.fetchInworldAudio(chunk.text);
