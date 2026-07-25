@@ -15,6 +15,81 @@ export interface TextToken {
   elementIndex: number; // 0-based word index within the block
 }
 
+export interface InworldTextChunk {
+  text: string;
+  startCharOffset: number;
+  endCharOffset: number;
+}
+
+const INWORLD_TEXT_CHUNK_LENGTH = 1900;
+
+/**
+ * Splits text below Inworld's 2,000-character request limit while preserving an
+ * exact mapping back to the original block. Sentence and whitespace boundaries
+ * are preferred, with a hard split reserved for unusually long unbroken text.
+ */
+export function splitTextForInworld(
+  text: string,
+  maxLength = INWORLD_TEXT_CHUNK_LENGTH,
+): InworldTextChunk[] {
+  if (!Number.isInteger(maxLength) || maxLength < 1) {
+    throw new Error('Inworld chunk length must be a positive integer.');
+  }
+
+  const chunks: InworldTextChunk[] = [];
+  let startCharOffset = 0;
+
+  while (startCharOffset < text.length) {
+    const remainingLength = text.length - startCharOffset;
+    let endCharOffset = Math.min(text.length, startCharOffset + maxLength);
+
+    if (remainingLength > maxLength) {
+      const window = text.slice(startCharOffset, endCharOffset);
+      const minimumPreferredBreak = Math.floor(maxLength * 0.5);
+      let preferredBreak = -1;
+
+      const sentenceBoundary = /[.!?;:][”’"'）)\]}]*\s+/gu;
+      for (const match of window.matchAll(sentenceBoundary)) {
+        const candidate = (match.index ?? 0) + match[0].length;
+        if (candidate >= minimumPreferredBreak) preferredBreak = candidate;
+      }
+
+      if (preferredBreak === -1) {
+        const whitespaceBoundary = /\s+/gu;
+        for (const match of window.matchAll(whitespaceBoundary)) {
+          const candidate = (match.index ?? 0) + match[0].length;
+          if (candidate >= minimumPreferredBreak) preferredBreak = candidate;
+        }
+      }
+
+      if (preferredBreak !== -1) {
+        endCharOffset = startCharOffset + preferredBreak;
+      } else if (
+        endCharOffset < text.length &&
+        endCharOffset - 1 > startCharOffset &&
+        /[\uDC00-\uDFFF]/u.test(text[endCharOffset]) &&
+        /[\uD800-\uDBFF]/u.test(text[endCharOffset - 1])
+      ) {
+        endCharOffset -= 1;
+      }
+    }
+
+    chunks.push({
+      text: text.slice(startCharOffset, endCharOffset),
+      startCharOffset,
+      endCharOffset,
+    });
+    startCharOffset = endCharOffset;
+  }
+
+  return chunks;
+}
+
+interface InworldAudio {
+  audioContent: string;
+  timestampInfo: any;
+}
+
 /**
  * Tokenizes a line or paragraph of text into stable, punctuation-aware words
  * with exact character start and end index bounds.
@@ -71,9 +146,9 @@ export class TTSEngine {
   // Inworld TTS state variables
   private audioPlayer: HTMLAudioElement | null = null;
   private audioObjectUrl: string | null = null;
-  private inworldCache: Map<string, { audioContent: string; timestampInfo: any }> = new Map();
-  private isFetchingInworld = false;
-  private playPending = false;
+  private inworldCache: Map<string, InworldAudio> = new Map();
+  private inworldRequests: Map<string, Promise<InworldAudio>> = new Map();
+  private playRequestId = 0;
   private trackingFrameId: any = null;
   private currentTokensWithTimestamps: {
     word: string;
@@ -131,6 +206,7 @@ export class TTSEngine {
    * Loads a block of text, tokenizing it into stable visual nodes.
    */
   setBlock(blockIndex: number, text: string) {
+    this.playRequestId += 1;
     this.cleanup();
     this.currentBlockIndex = blockIndex;
     this.currentBlockText = text;
@@ -140,7 +216,8 @@ export class TTSEngine {
 
     // Background pre-fetch Inworld audio to make transitions instantaneous
     if (this.config.inworldEnabled && this.config.inworldApiKey) {
-      this.prefetchInworld(text);
+      const firstChunk = splitTextForInworld(text)[0];
+      if (firstChunk) this.prefetchInworld(firstChunk.text);
     }
   }
 
@@ -183,9 +260,10 @@ export class TTSEngine {
 
   /**
    * Starts speaking the loaded text block.
-   * Can optionally start from a specific word boundary.
-   */
+  * Can optionally start from a specific word boundary.
+  */
   play(fromWordIndex = 0) {
+    const requestId = ++this.playRequestId;
     this.isPlayingInternal = true;
 
     if (this.currentTokens.length === 0) {
@@ -197,15 +275,9 @@ export class TTSEngine {
 
     // If Inworld is enabled, route to Inworld engine
     if (this.config.inworldEnabled && this.config.inworldApiKey) {
-      const text = this.currentBlockText;
-      const cached = this.inworldCache.get(this.getInworldCacheKey(text));
-      if (cached) {
-        this.playInworldCached(cached, fromWordIndex);
-      } else {
-        this.activeWordIndex = fromWordIndex;
-        this.playPending = true;
-        this.fetchInworld(text, fromWordIndex);
-      }
+      const chunks = splitTextForInworld(this.currentBlockText);
+      const chunkIndex = this.findInworldChunkIndex(chunks, fromWordIndex);
+      void this.playInworldChunk(chunks, chunkIndex, fromWordIndex, requestId);
       return;
     }
 
@@ -215,11 +287,19 @@ export class TTSEngine {
   /**
    * Helper to perform high-fidelity Inworld playback from cache
    */
-  private playInworldCached(cached: { audioContent: string; timestampInfo: any }, fromWordIndex: number) {
+  private playInworldCached(
+    cached: InworldAudio,
+    chunks: InworldTextChunk[],
+    chunkIndex: number,
+    fromWordIndex: number,
+    requestId: number,
+  ) {
     this.cleanup();
     this.isPlayingInternal = true;
+    this.activeWordIndex = -1;
 
     try {
+      const chunk = chunks[chunkIndex];
       const blob = this.base64ToBlob(cached.audioContent, 'audio/mp3');
       const audioUrl = URL.createObjectURL(blob);
       this.audioObjectUrl = audioUrl;
@@ -229,7 +309,7 @@ export class TTSEngine {
       const wordStartTimeSeconds = cached.timestampInfo?.wordAlignment?.wordStartTimeSeconds || [];
       const wordEndTimeSeconds = cached.timestampInfo?.wordAlignment?.wordEndTimeSeconds || [];
 
-      // Align raw Inworld tokens with character positions in blockText
+      // Align raw Inworld tokens with character positions in the original block.
       let cursor = 0;
       const inworldAligned: {
         word: string;
@@ -246,8 +326,8 @@ export class TTSEngine {
         if (cleanedWord === "") {
           inworldAligned.push({
             word: w,
-            startIndex: cursor,
-            endIndex: cursor + w.length,
+            startIndex: chunk.startCharOffset + cursor,
+            endIndex: chunk.startCharOffset + cursor + w.length,
             startTime: wordStartTimeSeconds[i] || 0,
             endTime: wordEndTimeSeconds[i] || 0,
           });
@@ -255,22 +335,22 @@ export class TTSEngine {
           continue;
         }
 
-        const startIndex = this.currentBlockText.indexOf(cleanedWord, cursor);
-        if (startIndex !== -1) {
-          const endIndex = startIndex + cleanedWord.length;
+        const chunkStartIndex = chunk.text.indexOf(cleanedWord, cursor);
+        if (chunkStartIndex !== -1) {
+          const chunkEndIndex = chunkStartIndex + cleanedWord.length;
           inworldAligned.push({
             word: w,
-            startIndex,
-            endIndex,
+            startIndex: chunk.startCharOffset + chunkStartIndex,
+            endIndex: chunk.startCharOffset + chunkEndIndex,
             startTime: wordStartTimeSeconds[i] || 0,
             endTime: wordEndTimeSeconds[i] || 0,
           });
-          cursor = endIndex;
+          cursor = chunkEndIndex;
         } else {
           inworldAligned.push({
             word: w,
-            startIndex: cursor,
-            endIndex: cursor + w.length,
+            startIndex: chunk.startCharOffset + cursor,
+            endIndex: chunk.startCharOffset + cursor + w.length,
             startTime: wordStartTimeSeconds[i] || 0,
             endTime: wordEndTimeSeconds[i] || 0,
           });
@@ -279,7 +359,12 @@ export class TTSEngine {
       }
 
       // Map Inworld timestamps to our exact alphanumeric currentTokens
-      this.currentTokensWithTimestamps = this.currentTokens.map((ourToken) => {
+      const chunkTokens = this.currentTokens.filter((token) => (
+        token.endIndex > chunk.startCharOffset &&
+        token.startIndex < chunk.endCharOffset
+      ));
+
+      this.currentTokensWithTimestamps = chunkTokens.map((ourToken) => {
         // Find all overlapping Inworld raw tokens
         const overlappingInworld = inworldAligned.filter(iw => {
           const overlapStart = Math.max(ourToken.startIndex, iw.startIndex);
@@ -333,7 +418,9 @@ export class TTSEngine {
 
       player.onloadedmetadata = () => {
         if (this.currentTokensWithTimestamps.length > 0 && fromWordIndex > 0) {
-          const token = this.currentTokensWithTimestamps[fromWordIndex];
+          const token = this.currentTokensWithTimestamps.find(
+            (candidate) => candidate.elementIndex === fromWordIndex,
+          );
           if (token) {
             player.currentTime = token.startTime;
           }
@@ -346,7 +433,24 @@ export class TTSEngine {
         if (this.audioObjectUrl === audioUrl) this.audioObjectUrl = null;
         if (this.audioPlayer === player) {
           this.audioPlayer = null;
-          this.triggerEnd();
+          if (requestId !== this.playRequestId) return;
+
+          const nextChunkIndex = chunkIndex + 1;
+          const nextChunk = chunks[nextChunkIndex];
+          if (nextChunk) {
+            const nextToken = this.currentTokens.find((token) => (
+              token.endIndex > nextChunk.startCharOffset &&
+              token.startIndex < nextChunk.endCharOffset
+            ));
+            void this.playInworldChunk(
+              chunks,
+              nextChunkIndex,
+              nextToken?.elementIndex ?? fromWordIndex,
+              requestId,
+            );
+          } else {
+            this.triggerEnd();
+          }
         }
       };
 
@@ -366,6 +470,8 @@ export class TTSEngine {
       if (playPromise !== undefined) {
         playPromise.then(() => {
           this.startInworldTracking();
+          const nextChunk = chunks[chunkIndex + 1];
+          if (nextChunk) this.prefetchInworld(nextChunk.text);
         }).catch(err => {
           console.error("🐝 [TTSEngine] play() failed:", err);
           console.warn("🐝 [TTSEngine] Falling back to native SpeechSynthesis due to play rejection.");
@@ -378,13 +484,73 @@ export class TTSEngine {
     }
   }
 
-  /**
-   * Helper to fetch Inworld audio on-demand
-   */
-  private async fetchInworld(text: string, fromWordIndex: number) {
-    if (this.isFetchingInworld) return;
-    this.isFetchingInworld = true;
+  private findInworldChunkIndex(chunks: InworldTextChunk[], fromWordIndex: number): number {
+    const safeWordIndex = Math.max(0, Math.min(fromWordIndex, this.currentTokens.length - 1));
+    const token = this.currentTokens[safeWordIndex];
+    if (!token) return 0;
+
+    const startingChunk = chunks.findIndex((chunk) => (
+      token.startIndex >= chunk.startCharOffset &&
+      token.startIndex < chunk.endCharOffset
+    ));
+    if (startingChunk !== -1) return startingChunk;
+
+    const overlappingChunk = chunks.findIndex((chunk) => (
+      token.endIndex > chunk.startCharOffset &&
+      token.startIndex < chunk.endCharOffset
+    ));
+    return Math.max(0, overlappingChunk);
+  }
+
+  private async playInworldChunk(
+    chunks: InworldTextChunk[],
+    chunkIndex: number,
+    fromWordIndex: number,
+    requestId: number,
+  ) {
+    const chunk = chunks[chunkIndex];
+    if (!chunk || requestId !== this.playRequestId) return;
+
+    const blockIndex = this.currentBlockIndex;
+    const blockText = this.currentBlockText;
+    this.activeWordIndex = fromWordIndex;
+
     try {
+      const cached = await this.fetchInworldAudio(chunk.text);
+      if (
+        requestId !== this.playRequestId ||
+        blockIndex !== this.currentBlockIndex ||
+        blockText !== this.currentBlockText ||
+        !this.isPlayingInternal
+      ) {
+        return;
+      }
+      this.playInworldCached(cached, chunks, chunkIndex, fromWordIndex, requestId);
+    } catch (err: any) {
+      if (requestId !== this.playRequestId) return;
+      console.error("🐝 [TTSEngine] Inworld fetch failed:", err);
+
+      if (this.config.onError) {
+        this.config.onError(err);
+      }
+
+      console.warn("🐝 [TTSEngine] Falling back to native SpeechSynthesis due to API failure.");
+      this.playNativeFallback(fromWordIndex);
+    }
+  }
+
+  /**
+   * Shared, deduplicated Inworld fetch used by foreground playback and prefetch.
+   */
+  private fetchInworldAudio(text: string): Promise<InworldAudio> {
+    const cacheKey = this.getInworldCacheKey(text);
+    const cached = this.inworldCache.get(cacheKey);
+    if (cached) return Promise.resolve(cached);
+
+    const existingRequest = this.inworldRequests.get(cacheKey);
+    if (existingRequest) return existingRequest;
+
+    const request = (async () => {
       const apiKey = this.config.inworldApiKey || "";
       const authHeader = apiKey.startsWith("Basic ") ? apiKey : `Basic ${apiKey}`;
 
@@ -417,74 +583,29 @@ export class TTSEngine {
         throw new Error("No audioContent returned from Inworld API");
       }
 
-      this.inworldCache.set(this.getInworldCacheKey(text), {
+      const audio = {
         audioContent: data.audioContent,
         timestampInfo: data.timestampInfo,
-      });
+      };
+      this.inworldCache.set(cacheKey, audio);
+      return audio;
+    })();
 
-      this.isFetchingInworld = false;
-
-      if (this.playPending && this.currentBlockText === text) {
-        this.playPending = false;
-        this.playInworldCached(
-          { audioContent: data.audioContent, timestampInfo: data.timestampInfo },
-          fromWordIndex
-        );
+    this.inworldRequests.set(cacheKey, request);
+    void request.finally(() => {
+      if (this.inworldRequests.get(cacheKey) === request) {
+        this.inworldRequests.delete(cacheKey);
       }
-    } catch (err: any) {
-      console.error("🐝 [TTSEngine] Inworld fetch failed:", err);
-      this.isFetchingInworld = false;
-      this.playPending = false;
-
-      if (this.config.onError) {
-        this.config.onError(err);
-      }
-
-      console.warn("🐝 [TTSEngine] Falling back to native SpeechSynthesis due to API failure.");
-      this.playNativeFallback(fromWordIndex);
-    }
+    }).catch(() => undefined);
+    return request;
   }
 
   /**
    * Helper to pre-fetch Inworld audio in the background
    */
   private prefetchInworld(text: string) {
-    const cacheKey = this.getInworldCacheKey(text);
-    if (!text || this.inworldCache.has(cacheKey) || this.isFetchingInworld) return;
-
-    const apiKey = this.config.inworldApiKey || "";
-    const authHeader = apiKey.startsWith("Basic ") ? apiKey : `Basic ${apiKey}`;
-
-    fetch("https://api.inworld.ai/tts/v1/voice", {
-      method: "POST",
-      headers: {
-        "Authorization": authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: text,
-        voiceId: this.config.inworldVoiceId || "Ashley",
-        modelId: "inworld-tts-2",
-        timestampType: "WORD",
-        audioConfig: {
-          audioEncoding: "MP3",
-          sampleRateHertz: 22050,
-        },
-      }),
-    })
-    .then(res => {
-      if (res.ok) return res.json();
-      return null;
-    })
-    .then(data => {
-      if (data && data.audioContent) {
-        this.inworldCache.set(cacheKey, {
-          audioContent: data.audioContent,
-          timestampInfo: data.timestampInfo,
-        });
-      }
-    })
-    .catch(err => {
+    if (!text) return;
+    void this.fetchInworldAudio(text).catch(err => {
       console.warn("🐝 [TTSEngine] Background pre-fetch failed:", err);
     });
   }
@@ -626,7 +747,7 @@ export class TTSEngine {
    */
   stop() {
     this.isPlayingInternal = false;
-    this.playPending = false;
+    this.playRequestId += 1;
     this.stopInworldTracking();
 
     if (this.audioPlayer) {
@@ -712,8 +833,9 @@ export class TTSEngine {
     }
 
     // If the active index changed, trigger the word boundary callback
-    if (activeTokenIndex !== -1 && activeTokenIndex !== this.activeWordIndex) {
-      this.activeWordIndex = activeTokenIndex;
+    const activeToken = this.currentTokensWithTimestamps[activeTokenIndex];
+    if (activeToken && activeToken.elementIndex !== this.activeWordIndex) {
+      this.activeWordIndex = activeToken.elementIndex;
       const token = this.currentTokensWithTimestamps[activeTokenIndex];
       this.triggerWordBoundary(token.elementIndex, token.startIndex);
     }
