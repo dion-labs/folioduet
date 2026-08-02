@@ -8,6 +8,8 @@ interface HandoffDialogProps {
   bookTitle: string;
   pageLabel: string;
   requiresSignIn: boolean;
+  /** Shared catalog sample — works for guests on any device. */
+  catalogSample?: boolean;
   onSignIn?: () => void;
   onClose: () => void;
 }
@@ -18,6 +20,7 @@ export function HandoffDialog({
   bookTitle,
   pageLabel,
   requiresSignIn,
+  catalogSample = false,
   onSignIn,
   onClose,
 }: HandoffDialogProps) {
@@ -151,7 +154,9 @@ export function HandoffDialog({
           </div>
         ) : (
           <p className="pe-dialog-note">
-            Open the link on a device signed into the same Google account. Progress is included in the link.
+            {catalogSample
+              ? 'No account needed for this sample — open the link on any phone or browser. Your place in the story is in the link.'
+              : 'Open the link on a device signed into the same Google account. Progress is included in the link.'}
           </p>
         )}
       </section>

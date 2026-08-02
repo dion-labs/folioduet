@@ -73,6 +73,8 @@ import {
   TELL_TALE_DEFAULT_AUDIO_VOICE_ID,
   TELL_TALE_LIBRARY_DOC_ID,
   TELL_TALE_SAMPLE_ID,
+  createTellTaleLibraryDocument,
+  isCatalogSampleDocumentId,
 } from './catalog/constants';
 import { installGlobalErrorReporting } from './firebase/analytics';
 import { isFirebaseConfigured } from './firebase/app';
@@ -1315,16 +1317,32 @@ export default function AppV2() {
     clearHandoffFromUrl();
     savePendingHandoff(target);
 
-    const document = documents.find((entry) => entry.id === target.documentId);
     const signedIn = Boolean(authUser && !authUser.isAnonymous);
+    const catalogHandoff = isCatalogSampleDocumentId(target.documentId);
 
-    if (!signedIn) {
-      // Guests never auto-open — keep a local handoff and ask them to sign in.
+    // Personal books still need the same Google account. Catalog samples are
+    // public content — guests can resume from position alone.
+    if (!signedIn && !catalogHandoff) {
       handoffArrivalRef.current = 'storage';
       setHandoffError(
         'Sign in with the same Google account to continue this handoff on this device.',
       );
       setLibraryOpen(true);
+      return;
+    }
+
+    const document = documents.find((entry) => entry.id === target.documentId);
+    if (!document && catalogHandoff) {
+      // Seed the shared sample stub; effect re-runs once it's in the library.
+      const stub = createTellTaleLibraryDocument({
+        currentPageIndex: Math.max(0, target.pageIndex),
+        activeBlockIndex: Math.max(0, target.blockIndex),
+        activeWordIndex: Math.max(0, target.wordIndex),
+        ...(typeof target.streamIndex === 'number'
+          ? { activeStreamIndex: Math.max(0, target.streamIndex) }
+          : {}),
+      });
+      setDocuments((current) => normalizeLibraryDocuments([stub, ...current]));
       return;
     }
 
@@ -1336,7 +1354,9 @@ export default function AppV2() {
       return;
     }
 
-    // Already signed in when the link opened → jump straight to the page.
+    setHandoffError(null);
+
+    // Fresh URL open → jump straight to the page (signed-in or guest sample).
     if (handoffArrivalRef.current === 'url') {
       applyHandoffTarget(target);
       return;
@@ -1346,7 +1366,6 @@ export default function AppV2() {
     if (!handoffResumeShownRef.current) {
       handoffResumeShownRef.current = true;
       setHandoffResume(target);
-      setHandoffError(null);
     }
   }, [applyHandoffTarget, authUser, documents, hydrateReady]);
 
@@ -1480,23 +1499,10 @@ export default function AppV2() {
           title: 'The Tell-Tale Heart',
         });
       }
-      const now = Date.now();
-      const document: LibraryDocument = {
-        id: TELL_TALE_LIBRARY_DOC_ID,
-        name: 'The Tell-Tale Heart',
-        kind: 'markdown-zip',
+      const document = createTellTaleLibraryDocument({
         sourceName: file.name,
         totalPages,
-        currentPageIndex: 0,
-        activeBlockIndex: 0,
-        activeWordIndex: 0,
-        updatedAt: now,
-        addedAt: now,
-        isSample: true,
-        catalogSampleId: TELL_TALE_SAMPLE_ID,
-        hasProcessedContent: true,
-        processedFormat: 'markdown-pages',
-      };
+      });
       // Keep a local copy for offline; content sync uses the shared catalog.
       await saveSourceFile(document.id, file);
       setDocuments((current) => normalizeLibraryDocuments([document, ...current]));
@@ -2323,7 +2329,15 @@ export default function AppV2() {
         url={handoffUrl}
         bookTitle={activeDocument?.name || 'this book'}
         pageLabel={`page ${pageIndex + 1}`}
-        requiresSignIn={Boolean(firebaseMode && isAnonymousUser)}
+        requiresSignIn={Boolean(
+          firebaseMode
+          && isAnonymousUser
+          && !activeDocument?.isSample
+          && !isCatalogSampleDocumentId(activeDocument?.id ?? ''),
+        )}
+        catalogSample={Boolean(
+          activeDocument?.isSample || isCatalogSampleDocumentId(activeDocument?.id ?? ''),
+        )}
         onSignIn={firebaseMode && isAnonymousUser ? () => { void handleGoogleSignIn(); } : undefined}
         onClose={() => setHandoffOpen(false)}
       />
