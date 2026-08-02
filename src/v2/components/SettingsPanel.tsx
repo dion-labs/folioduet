@@ -1,5 +1,6 @@
 import { ChevronDown, Moon, Sun, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { FISH_AUDIO_REFERRAL_URL } from '../projectLinks';
 import type { DeviceSyncStatus, ReaderPreferences, TtsServerStatus } from '../types';
 
 interface SettingsPanelProps {
@@ -263,6 +264,12 @@ export function SettingsPanel({
                     autoComplete="off"
                   />
                 </label>
+                <p className="pe-settings-hint">
+                  Need a key?{' '}
+                  <a href={FISH_AUDIO_REFERRAL_URL} target="_blank" rel="noreferrer">
+                    Get one from Fish Audio
+                  </a>
+                </p>
                 {fishDraft.trim() ? (
                   <button
                     type="button"

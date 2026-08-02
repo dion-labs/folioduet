@@ -222,6 +222,24 @@
   text-align: left;
 }
 
+.pe-settings-hint {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--pe-muted);
+  text-align: left;
+}
+
+.pe-settings-hint a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pe-settings-hint a:hover {
+  color: var(--pe-text);
+}
+
 .pe-fatal-actions {
   display: flex;
   flex-wrap: wrap;
