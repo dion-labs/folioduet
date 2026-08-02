@@ -101,6 +101,7 @@ import {
   loadPairedPdf,
   loadPreferences,
   loadSourceFile,
+  resolveActiveDocumentId,
   saveActiveDocumentId,
   saveLibrary,
   savePairedPdf,
@@ -421,8 +422,11 @@ export default function AppV2() {
   }, [documents]);
 
   useEffect(() => {
+    // Firebase boots with activeDocumentId=null until hydrate — don't wipe the
+    // last-open id from localStorage before we can use it as a restore fallback.
+    if (firebaseMode && !hydrateReady) return;
     saveActiveDocumentId(activeDocumentId);
-  }, [activeDocumentId]);
+  }, [activeDocumentId, hydrateReady]);
 
   useEffect(() => {
     savePreferences(preferences);
@@ -576,11 +580,13 @@ export default function AppV2() {
             setActiveDocumentId(null);
             setLibraryOpen(true);
           } else {
-            const preferredActive = bootstrap.activeDocumentId
-              && merged.some((doc) => doc.id === bootstrap.activeDocumentId)
-              ? bootstrap.activeDocumentId
-              : (merged[0]?.id ?? null);
+            // Cloud first, then this device's last-open id (localStorage), else top of shelf.
+            const preferredActive = resolveActiveDocumentId(merged, [
+              bootstrap.activeDocumentId,
+              loadActiveDocumentId(),
+            ]);
             setActiveDocumentId(preferredActive);
+            if (preferredActive) setLibraryOpen(false);
             const activeDoc = merged.find((doc) => doc.id === preferredActive);
             if (activeDoc) {
               setPageIndex(clampPage(activeDoc.currentPageIndex, activeDoc.totalPages));
@@ -595,9 +601,20 @@ export default function AppV2() {
               : localLibrary,
           );
           pendingLibraryMergeRef.current = null;
+          const seedActive = resolveActiveDocumentId(seedLibrary, [loadActiveDocumentId()]);
           // Seed cloud/server from this device so other clients can pull next.
-          await putLibrary(seedLibrary, loadActiveDocumentId());
+          await putLibrary(seedLibrary, seedActive);
           setDocuments(seedLibrary);
+          setActiveDocumentId(seedActive);
+          if (seedActive) {
+            setLibraryOpen(false);
+            const activeDoc = seedLibrary.find((doc) => doc.id === seedActive);
+            if (activeDoc) {
+              setPageIndex(clampPage(activeDoc.currentPageIndex, activeDoc.totalPages));
+              setSavedBlockIndex(activeDoc.activeBlockIndex);
+              setSavedWordIndex(activeDoc.activeWordIndex);
+            }
+          }
           for (const document of seedLibrary) {
             if (document.isSample || document.catalogSampleId) continue;
             try {

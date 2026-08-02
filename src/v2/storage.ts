@@ -100,6 +100,22 @@ export function saveActiveDocumentId(documentId: string | null): void {
   }
 }
 
+/**
+ * Pick which book to reopen after bootstrap.
+ * Candidates are tried in order (cloud → local → …); first id present in the
+ * library wins. Falls back to the first library entry when none match.
+ */
+export function resolveActiveDocumentId(
+  library: Array<{ id: string }>,
+  candidates: Array<string | null | undefined>,
+): string | null {
+  for (const candidate of candidates) {
+    const id = typeof candidate === 'string' ? candidate.trim() : '';
+    if (id && library.some((document) => document.id === id)) return id;
+  }
+  return library[0]?.id ?? null;
+}
+
 export function loadPreferences(): ReaderPreferences {
   try {
     const saved = localStorage.getItem(PREFERENCES_KEY);
