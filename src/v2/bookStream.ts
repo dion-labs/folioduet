@@ -311,6 +311,59 @@ export function findPageForStreamIndex(pageStarts: number[], streamIndex: number
   return page;
 }
 
+export type PackPageAnchor = {
+  pageIndex: number;
+  blockIndex: number;
+  wordIndex: number;
+};
+
+export type PackStreamAnchor = {
+  streamIndex: number;
+  wordIndex: number;
+};
+
+/** Resolve which page/block to show after a pack — page anchor wins once, then stream. */
+export function resolvePackRestore(
+  pageStarts: number[],
+  pageBlockCounts: number[],
+  streamAnchor: PackStreamAnchor,
+  pageAnchor: PackPageAnchor | null,
+): {
+  pageIndex: number;
+  localBlockIndex: number;
+  wordIndex: number;
+  streamIndex: number;
+  consumedPageAnchor: boolean;
+} {
+  const pageCount = Math.max(1, pageStarts.length);
+
+  if (pageAnchor) {
+    const pageIndex = Math.min(Math.max(0, Math.floor(pageAnchor.pageIndex)), pageCount - 1);
+    const start = pageStarts[pageIndex] ?? 0;
+    const blockCount = Math.max(1, pageBlockCounts[pageIndex] ?? 1);
+    const localBlockIndex = Math.min(Math.max(0, Math.floor(pageAnchor.blockIndex)), blockCount - 1);
+    const wordIndex = Math.max(0, Math.floor(pageAnchor.wordIndex));
+    return {
+      pageIndex,
+      localBlockIndex,
+      wordIndex,
+      streamIndex: start + localBlockIndex,
+      consumedPageAnchor: true,
+    };
+  }
+
+  const pageIndex = findPageForStreamIndex(pageStarts, streamAnchor.streamIndex);
+  const start = pageStarts[pageIndex] ?? 0;
+  const localBlockIndex = Math.max(0, streamAnchor.streamIndex - start);
+  return {
+    pageIndex,
+    localBlockIndex,
+    wordIndex: Math.max(0, streamAnchor.wordIndex),
+    streamIndex: streamAnchor.streamIndex,
+    consumedPageAnchor: false,
+  };
+}
+
 export function pagesToMarkdown(pages: BookStreamBlock[][]): string[] {
   return pages.map((page) => `${page.map((block) => block.markdown).join('\n\n')}\n`);
 }

@@ -58,6 +58,9 @@ export function normalizeDocument(value: unknown): LibraryDocument | null {
     currentPageIndex: Math.max(0, asNumber(value.currentPageIndex, 0)),
     activeBlockIndex: Math.max(0, asNumber(value.activeBlockIndex, 0)),
     activeWordIndex: Math.max(0, asNumber(value.activeWordIndex, 0)),
+    activeStreamIndex: typeof value.activeStreamIndex === 'number' && Number.isFinite(value.activeStreamIndex)
+      ? Math.max(0, Math.floor(value.activeStreamIndex))
+      : undefined,
     updatedAt,
     addedAt: asNumber(value.addedAt, updatedAt),
     pairedPdfName: typeof value.pairedPdfName === 'string' ? value.pairedPdfName : undefined,

@@ -9,10 +9,11 @@ import {
 } from 'react';
 import {
   expandStreamForBudgetAsync,
-  findPageForStreamIndex,
   packStreamByHeight,
   packStreamByWords,
+  resolvePackRestore,
   type BookStreamBlock,
+  type PackPageAnchor,
 } from './bookStream';
 import { DEFAULT_WORDS_PER_PAGE } from './documents';
 import {
@@ -43,6 +44,11 @@ type Options = {
   pageBodyRef: RefObject<HTMLElement | null>;
   /** Content anchor preserved across viewport / font reflows. */
   anchorRef: MutableRefObject<Anchor>;
+  /**
+   * One-shot legacy restore by saved viewport page (consumed on first pack).
+   * Prefer stream `anchorRef` when `activeStreamIndex` is known.
+   */
+  pageAnchorRef?: MutableRefObject<PackPageAnchor | null>;
   onPageCount: (totalPages: number) => void;
   onRestorePage: (pageIndex: number, localBlockIndex: number, wordIndex: number) => void;
 };
@@ -83,6 +89,7 @@ export function useViewportBookPages({
   stageRef,
   pageBodyRef,
   anchorRef,
+  pageAnchorRef,
   onPageCount,
   onRestorePage,
 }: Options) {
@@ -119,12 +126,26 @@ export function useViewportBookPages({
     if (markReady) setReady(true);
     onPageCountRef.current(pagesOut.length);
 
-    const anchor = anchorRef.current;
-    const pageIndex = findPageForStreamIndex(startsOut, anchor.streamIndex);
-    const start = startsOut[pageIndex] ?? 0;
-    const localBlockIndex = Math.max(0, anchor.streamIndex - start);
-    onRestorePageRef.current(pageIndex, localBlockIndex, anchor.wordIndex);
-  }, [anchorRef]);
+    const pageAnchor = pageAnchorRef?.current ?? null;
+    const restored = resolvePackRestore(
+      startsOut,
+      pagesOut.map((page) => page.length),
+      anchorRef.current,
+      pageAnchor,
+    );
+    if (restored.consumedPageAnchor && pageAnchorRef) {
+      pageAnchorRef.current = null;
+    }
+    anchorRef.current = {
+      streamIndex: restored.streamIndex,
+      wordIndex: restored.wordIndex,
+    };
+    onRestorePageRef.current(
+      restored.pageIndex,
+      restored.localBlockIndex,
+      restored.wordIndex,
+    );
+  }, [anchorRef, pageAnchorRef]);
 
   useEffect(() => {
     cancelSignalRef.current.cancelled = true;

@@ -145,6 +145,7 @@ interface PendingProgress {
   pageIndex: number;
   blockIndex: number;
   wordIndex: number;
+  streamIndex: number;
 }
 
 function clampPage(pageIndex: number, totalPages: number): number {
@@ -308,6 +309,8 @@ export default function AppV2() {
   const streamAnchorRef = useRef({ streamIndex: 0, wordIndex: 0 });
   /** Document id the current streamAnchorRef belongs to — avoids clobbering handoff restores. */
   const streamAnchorDocIdRef = useRef<string | null>(null);
+  /** One-shot legacy page restore when `activeStreamIndex` is missing. */
+  const pageAnchorRef = useRef<{ pageIndex: number; blockIndex: number; wordIndex: number } | null>(null);
   const pageStartsRef = useRef<number[]>([0]);
 
   const updateDocument = useCallback((documentId: string, patch: Partial<LibraryDocument>) => {
@@ -328,6 +331,7 @@ export default function AppV2() {
       currentPageIndex: progress.pageIndex,
       activeBlockIndex: progress.blockIndex,
       activeWordIndex: progress.wordIndex,
+      activeStreamIndex: progress.streamIndex,
       updatedAt: Date.now(),
     });
   }, [updateDocument]);
@@ -343,6 +347,7 @@ export default function AppV2() {
       pageIndex,
       blockIndex,
       wordIndex,
+      streamIndex,
     };
     if (progressTimerRef.current === null) {
       progressTimerRef.current = window.setTimeout(flushProgress, 450);
@@ -794,10 +799,11 @@ export default function AppV2() {
     setPageContent({ pageIndex: -1, blocks: [] });
     setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
-    // Prefer a pending handoff stream anchor (cross-device stable). Never reset it to 0
-    // after the stream loads — viewport packing restores from this ref.
+    // Prefer handoff / saved stream index (stable). Never treat page-local block
+    // as a stream index — that snapped refresh resume back toward page 0.
     if (!activeDocument) {
       streamAnchorDocIdRef.current = null;
+      pageAnchorRef.current = null;
     } else {
       const pending = pendingHandoffRef.current;
       const pendingStream = pending
@@ -806,16 +812,32 @@ export default function AppV2() {
         ? pending.streamIndex
         : null;
       if (pendingStream !== null) {
+        pageAnchorRef.current = null;
         streamAnchorRef.current = {
           streamIndex: pendingStream,
           wordIndex: Math.max(0, pending!.wordIndex),
         };
         streamAnchorDocIdRef.current = activeDocument.id;
       } else if (streamAnchorDocIdRef.current !== activeDocument.id) {
-        streamAnchorRef.current = {
-          streamIndex: Math.max(0, activeDocument.activeBlockIndex ?? 0),
-          wordIndex: Math.max(0, activeDocument.activeWordIndex ?? 0),
-        };
+        const wordIndex = Math.max(0, activeDocument.activeWordIndex ?? 0);
+        if (
+          typeof activeDocument.activeStreamIndex === 'number'
+          && Number.isFinite(activeDocument.activeStreamIndex)
+        ) {
+          pageAnchorRef.current = null;
+          streamAnchorRef.current = {
+            streamIndex: Math.max(0, activeDocument.activeStreamIndex),
+            wordIndex,
+          };
+        } else {
+          // Legacy library entries: restore by saved viewport page on first pack.
+          pageAnchorRef.current = {
+            pageIndex: Math.max(0, activeDocument.currentPageIndex ?? 0),
+            blockIndex: Math.max(0, activeDocument.activeBlockIndex ?? 0),
+            wordIndex,
+          };
+          streamAnchorRef.current = { streamIndex: 0, wordIndex };
+        }
         streamAnchorDocIdRef.current = activeDocument.id;
       }
     }
@@ -1008,6 +1030,7 @@ export default function AppV2() {
     stageRef: readerStageRef,
     pageBodyRef,
     anchorRef: streamAnchorRef,
+    pageAnchorRef,
     onPageCount: handleViewportPageCount,
     onRestorePage: handleViewportRestore,
   });
@@ -1111,10 +1134,12 @@ export default function AppV2() {
     setPageIndex(nextPage);
     setSavedBlockIndex(0);
     setSavedWordIndex(0);
+    const streamIndex = pageStartsRef.current[nextPage] ?? 0;
     streamAnchorRef.current = {
-      streamIndex: pageStartsRef.current[nextPage] ?? 0,
+      streamIndex,
       wordIndex: 0,
     };
+    pageAnchorRef.current = null;
     // If this page is already packed, paint it immediately — don't flash the
     // preparing spinner while background refit is still measuring later pages.
     const packed = bookStream ? viewportPages[nextPage] : undefined;
@@ -1141,6 +1166,7 @@ export default function AppV2() {
       currentPageIndex: nextPage,
       activeBlockIndex: 0,
       activeWordIndex: 0,
+      activeStreamIndex: streamIndex,
       updatedAt: Date.now(),
     });
   }, [activeDocument, bookStream, flushProgress, tts.stop, updateDocument, viewportPages]);
@@ -1179,6 +1205,7 @@ export default function AppV2() {
 
     streamAnchorRef.current = { streamIndex, wordIndex };
     streamAnchorDocIdRef.current = document.id;
+    pageAnchorRef.current = null;
     setActiveDocumentId(document.id);
     setPageIndex(nextPage);
     setSavedBlockIndex(localBlock);
@@ -1191,6 +1218,7 @@ export default function AppV2() {
       currentPageIndex: nextPage,
       activeBlockIndex: localBlock,
       activeWordIndex: wordIndex,
+      activeStreamIndex: streamIndex,
       updatedAt: Date.now(),
     });
     pendingHandoffRef.current = null;
@@ -1298,6 +1326,7 @@ export default function AppV2() {
       currentPageIndex: pageIndex,
       activeBlockIndex: target.blockIndex,
       activeWordIndex: target.wordIndex,
+      activeStreamIndex: streamIndex,
       updatedAt: Date.now(),
     });
     setHandoffUrl(buildHandoffUrl(window.location.origin, target));

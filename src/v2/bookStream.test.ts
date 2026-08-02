@@ -3,6 +3,7 @@ import {
   expandStreamForBudget,
   findPageForStreamIndex,
   packStreamByHeight,
+  resolvePackRestore,
   type BookStreamBlock,
 } from './bookStream';
 
@@ -89,5 +90,39 @@ describe('findPageForStreamIndex', () => {
     expect(findPageForStreamIndex([0, 4, 9], 4)).toBe(1);
     expect(findPageForStreamIndex([0, 4, 9], 8)).toBe(1);
     expect(findPageForStreamIndex([0, 4, 9], 12)).toBe(2);
+  });
+});
+
+describe('resolvePackRestore', () => {
+  it('prefers a one-shot page anchor and derives stream index', () => {
+    const restored = resolvePackRestore(
+      [0, 4, 9],
+      [4, 5, 3],
+      { streamIndex: 0, wordIndex: 0 },
+      { pageIndex: 2, blockIndex: 1, wordIndex: 3 },
+    );
+    expect(restored).toEqual({
+      pageIndex: 2,
+      localBlockIndex: 1,
+      wordIndex: 3,
+      streamIndex: 10,
+      consumedPageAnchor: true,
+    });
+  });
+
+  it('falls back to stream anchor when no page anchor is set', () => {
+    const restored = resolvePackRestore(
+      [0, 4, 9],
+      [4, 5, 3],
+      { streamIndex: 6, wordIndex: 2 },
+      null,
+    );
+    expect(restored).toMatchObject({
+      pageIndex: 1,
+      localBlockIndex: 2,
+      wordIndex: 2,
+      streamIndex: 6,
+      consumedPageAnchor: false,
+    });
   });
 });

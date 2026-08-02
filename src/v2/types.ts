@@ -11,6 +11,8 @@ export interface LibraryDocument {
   currentPageIndex: number;
   activeBlockIndex: number;
   activeWordIndex: number;
+  /** Global block index in the book stream — preferred for refresh / cross-device resume. */
+  activeStreamIndex?: number;
   updatedAt: number;
   addedAt: number;
   pairedPdfName?: string;
