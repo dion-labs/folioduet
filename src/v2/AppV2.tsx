@@ -79,6 +79,7 @@ import {
 } from './firebase/auth';
 import { clearFirebaseAuthHandlerUrl } from './firebase/authUrl';
 import { readFishSponsorKey } from './firebase/config';
+import { fetchFishVoiceTitle, formatFishVoiceLabel, peekFishVoiceTitle } from './fishVoice';
 import {
   ensureCatalogSamplePages,
   fetchCatalogAudioClips,
@@ -250,6 +251,9 @@ export default function AppV2() {
   const [inworldServerStatus, setInworldServerStatus] = useState<TtsServerStatus>('checking');
   const [fishAudioServerStatus, setFishAudioServerStatus] = useState<TtsServerStatus>('checking');
   const [ttsSecrets, setTtsSecrets] = useState({ inworldApiKey: '', fishAudioApiKey: '' });
+  const [fishVoiceTitle, setFishVoiceTitle] = useState<string | null>(() => (
+    peekFishVoiceTitle(loadPreferences().fishAudioVoiceId)
+  ));
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [libraryOpen, setLibraryOpen] = useState(() => firebaseMode || !loadActiveDocumentId());
@@ -420,6 +424,24 @@ export default function AppV2() {
   useEffect(() => {
     savePreferences(preferences);
   }, [preferences]);
+
+  useEffect(() => {
+    if (!preferences.fishAudioEnabled) return;
+    const voiceId = preferences.fishAudioVoiceId.trim();
+    if (!voiceId) {
+      setFishVoiceTitle(null);
+      return;
+    }
+    const cached = peekFishVoiceTitle(voiceId);
+    if (cached) setFishVoiceTitle(cached);
+    let cancelled = false;
+    void fetchFishVoiceTitle(voiceId).then((title) => {
+      if (!cancelled) setFishVoiceTitle(title);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [preferences.fishAudioEnabled, preferences.fishAudioVoiceId]);
 
   useEffect(() => {
     const uninstall = installGlobalErrorReporting();
@@ -1881,7 +1903,13 @@ export default function AppV2() {
                 <div className="pe-playback-info">
                   <span className="pe-audio-art"><Volume2 size={18} /></span>
                   <div>
-                    <strong>{preferences.fishAudioEnabled ? `Fish Audio (${preferences.fishAudioVoiceId})` : preferences.inworldEnabled ? `Inworld (${preferences.inworldVoiceId})` : 'System voice'}</strong>
+                    <strong>
+                      {preferences.fishAudioEnabled
+                        ? formatFishVoiceLabel(fishVoiceTitle, preferences.fishAudioVoiceId)
+                        : preferences.inworldEnabled
+                          ? `${preferences.inworldVoiceId} — Inworld`
+                          : 'System voice'}
+                    </strong>
                     <span>
                       {tts.lastError
                         ? 'Neural voice unavailable · using system fallback'
