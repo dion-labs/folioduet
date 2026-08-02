@@ -26,7 +26,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import type { MarkdownBlock } from '../hooks/useTTS';
-import { streamPageToMarkdownBlocks } from './bookStream';
+import { findPageForStreamIndex, streamPageToMarkdownBlocks } from './bookStream';
 import {
   buildChapterIndex,
   findCurrentChapterIndex,
@@ -58,6 +58,7 @@ import {
   clearPendingHandoff,
   loadPendingHandoff,
   readHandoffFromLocation,
+  resolveHandoffStreamIndex,
   savePendingHandoff,
   type HandoffTarget,
 } from './handoff';
@@ -297,6 +298,8 @@ export default function AppV2() {
   const readerStageRef = useRef<HTMLElement | null>(null);
   const pageBodyRef = useRef<HTMLDivElement | null>(null);
   const streamAnchorRef = useRef({ streamIndex: 0, wordIndex: 0 });
+  /** Document id the current streamAnchorRef belongs to — avoids clobbering handoff restores. */
+  const streamAnchorDocIdRef = useRef<string | null>(null);
   const pageStartsRef = useRef<number[]>([0]);
 
   const updateDocument = useCallback((documentId: string, patch: Partial<LibraryDocument>) => {
@@ -724,10 +727,31 @@ export default function AppV2() {
     setPageContent({ pageIndex: -1, blocks: [] });
     setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
-    streamAnchorRef.current = {
-      streamIndex: Math.max(0, activeDocument?.activeBlockIndex ?? 0),
-      wordIndex: Math.max(0, activeDocument?.activeWordIndex ?? 0),
-    };
+    // Prefer a pending handoff stream anchor (cross-device stable). Never reset it to 0
+    // after the stream loads — viewport packing restores from this ref.
+    if (!activeDocument) {
+      streamAnchorDocIdRef.current = null;
+    } else {
+      const pending = pendingHandoffRef.current;
+      const pendingStream = pending
+        && pending.documentId === activeDocument.id
+        && typeof pending.streamIndex === 'number'
+        ? pending.streamIndex
+        : null;
+      if (pendingStream !== null) {
+        streamAnchorRef.current = {
+          streamIndex: pendingStream,
+          wordIndex: Math.max(0, pending!.wordIndex),
+        };
+        streamAnchorDocIdRef.current = activeDocument.id;
+      } else if (streamAnchorDocIdRef.current !== activeDocument.id) {
+        streamAnchorRef.current = {
+          streamIndex: Math.max(0, activeDocument.activeBlockIndex ?? 0),
+          wordIndex: Math.max(0, activeDocument.activeWordIndex ?? 0),
+        };
+        streamAnchorDocIdRef.current = activeDocument.id;
+      }
+    }
 
     // Wait for auth bootstrap so guests don't open a previous account's active book.
     if (!hydrateReady || !activeDocument) return () => { active = false; };
@@ -792,7 +816,6 @@ export default function AppV2() {
           catalogPages.map((page) => page.markdown),
           activeDocument.name,
         );
-        streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
         setBookStream(stream);
         return;
       }
@@ -802,7 +825,6 @@ export default function AppV2() {
           setSource(loadedSource);
           const stream = await loadMarkdownStream(loadedSource, activeDocument.name);
           if (!active) return;
-          streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
           setBookStream(stream);
           return;
         }
@@ -819,7 +841,6 @@ export default function AppV2() {
           cloudPages.map((page) => page.markdown),
           activeDocument.name,
         );
-        streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
         setBookStream(stream);
         return;
       }
@@ -834,7 +855,6 @@ export default function AppV2() {
             cloudPages.map((page) => page.markdown),
             activeDocument.name,
           );
-          streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
           setBookStream(stream);
           return;
         }
@@ -857,7 +877,6 @@ export default function AppV2() {
           );
         }
         const stream = buildBookStream(sourcePages, activeDocument.name);
-        streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
         setBookStream(stream);
 
         // Sync extracted text (not the PDF binary) under the signed-in account.
@@ -1079,19 +1098,32 @@ export default function AppV2() {
     const document = documents.find((entry) => entry.id === target.documentId);
     if (!document) return false;
     tts.stop();
-    const nextPage = clampPage(target.pageIndex, document.totalPages);
+
+    // Stream index is stable across devices; page/block are derived for this viewport.
+    const streamIndex = resolveHandoffStreamIndex(target, pageStartsRef.current);
+    const starts = pageStartsRef.current;
+    const packedPages = starts.length > 0 ? starts.length : Math.max(1, document.totalPages);
+    const nextPage = starts.length > 0
+      ? findPageForStreamIndex(starts, streamIndex)
+      : clampPage(target.pageIndex, packedPages);
+    const pageStart = starts[nextPage] ?? 0;
+    const localBlock = Math.max(0, streamIndex - pageStart);
+    const wordIndex = Math.max(0, target.wordIndex);
+
+    streamAnchorRef.current = { streamIndex, wordIndex };
+    streamAnchorDocIdRef.current = document.id;
     setActiveDocumentId(document.id);
     setPageIndex(nextPage);
-    setSavedBlockIndex(Math.max(0, target.blockIndex));
-    setSavedWordIndex(Math.max(0, target.wordIndex));
+    setSavedBlockIndex(localBlock);
+    setSavedWordIndex(wordIndex);
     setReaderView('reading');
     setLibraryOpen(false);
     setHandoffError(null);
     setHandoffResume(null);
     updateDocument(document.id, {
       currentPageIndex: nextPage,
-      activeBlockIndex: Math.max(0, target.blockIndex),
-      activeWordIndex: Math.max(0, target.wordIndex),
+      activeBlockIndex: localBlock,
+      activeWordIndex: wordIndex,
       updatedAt: Date.now(),
     });
     pendingHandoffRef.current = null;
@@ -1184,12 +1216,17 @@ export default function AppV2() {
     flushProgress();
     const blockIndex = tts.isPlaying && tts.activeBlockIndex >= 0 ? tts.activeBlockIndex : savedBlockIndex;
     const wordIndex = tts.isPlaying && tts.activeWordIndex >= 0 ? tts.activeWordIndex : savedWordIndex;
+    const localBlock = Math.max(0, blockIndex);
+    const localWord = Math.max(0, wordIndex);
+    const streamIndex = (pageStartsRef.current[pageIndex] ?? 0) + localBlock;
     const target: HandoffTarget = {
       documentId: activeDocument.id,
       pageIndex,
-      blockIndex: Math.max(0, blockIndex),
-      wordIndex: Math.max(0, wordIndex),
+      blockIndex: localBlock,
+      wordIndex: localWord,
+      streamIndex,
     };
+    streamAnchorRef.current = { streamIndex, wordIndex: localWord };
     updateDocument(activeDocument.id, {
       currentPageIndex: pageIndex,
       activeBlockIndex: target.blockIndex,
