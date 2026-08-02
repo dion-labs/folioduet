@@ -104,11 +104,14 @@ describe('hasTrustedPageStarts', () => {
 });
 
 describe('shouldPreferPageResume', () => {
-  it('uses page when stream is missing or poisoned at zero', () => {
+  it('uses page when stream is missing or impossibly behind the saved page', () => {
     expect(shouldPreferPageResume(5, undefined)).toBe(true);
     expect(shouldPreferPageResume(5, 0)).toBe(true);
+    // Non-zero but still behind page — classic poison that snapped to page 1.
+    expect(shouldPreferPageResume(12, 5)).toBe(true);
     expect(shouldPreferPageResume(0, 0)).toBe(false);
     expect(shouldPreferPageResume(5, 42)).toBe(false);
+    expect(shouldPreferPageResume(5, 5)).toBe(false);
   });
 });
 
@@ -155,6 +158,38 @@ describe('resolvePackRestore', () => {
       wordIndex: 2,
       streamIndex: 6,
       consumedPageAnchor: false,
+      deferredPageAnchor: false,
+    });
+  });
+
+  it('uses page when stream maps behind the saved page', () => {
+    const restored = resolvePackRestore(
+      [0, 4, 9, 14, 20],
+      [4, 5, 5, 6, 4],
+      { streamIndex: 5, wordIndex: 151 },
+      { pageIndex: 3, blockIndex: 1, wordIndex: 0 },
+    );
+    expect(restored).toMatchObject({
+      pageIndex: 3,
+      localBlockIndex: 1,
+      streamIndex: 15,
+      consumedPageAnchor: true,
+      deferredPageAnchor: false,
+    });
+  });
+
+  it('uses stream when it reaches the saved page (reflow-safe)', () => {
+    const restored = resolvePackRestore(
+      [0, 4, 9, 14],
+      [4, 5, 5, 6],
+      { streamIndex: 16, wordIndex: 2 },
+      { pageIndex: 2, blockIndex: 0, wordIndex: 0 },
+    );
+    expect(restored).toMatchObject({
+      pageIndex: 3,
+      localBlockIndex: 2,
+      streamIndex: 16,
+      consumedPageAnchor: true,
       deferredPageAnchor: false,
     });
   });

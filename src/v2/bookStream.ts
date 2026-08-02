@@ -331,8 +331,11 @@ export function hasTrustedPageStarts(pageStarts: number[], pageIndex: number): b
 }
 
 /**
- * Prefer saved viewport page when stream index is missing or clearly poisoned
- * (stream says "start" while currentPageIndex is later).
+ * Prefer saved viewport page when stream index is missing or clearly poisoned.
+ *
+ * Every packed page has ≥1 block, so a consistent stream index must be
+ * `>= currentPageIndex`. A smaller non-zero stream (e.g. mid-title-page) with a
+ * later saved page is poisoned — trusting it snaps refresh back to page 0/1.
  */
 export function shouldPreferPageResume(
   currentPageIndex: number,
@@ -341,7 +344,9 @@ export function shouldPreferPageResume(
   if (typeof activeStreamIndex !== 'number' || !Number.isFinite(activeStreamIndex)) {
     return true;
   }
-  return activeStreamIndex <= 0 && currentPageIndex > 0;
+  if (currentPageIndex <= 0) return false;
+  // stream < page is impossible for a valid pack (pageStarts[i] >= i).
+  return activeStreamIndex < currentPageIndex;
 }
 
 /** Resolve which page/block to show after a pack — page anchor wins once, then stream. */
@@ -359,6 +364,9 @@ export function resolvePackRestore(
   /** True when a page anchor exists but this pack is too short to honor it yet. */
   deferredPageAnchor: boolean;
 } {
+  const streamPage = findPageForStreamIndex(pageStarts, streamAnchor.streamIndex);
+  const streamWord = Math.max(0, Math.floor(streamAnchor.wordIndex));
+
   if (pageAnchor) {
     const rawPage = Math.max(0, Math.floor(pageAnchor.pageIndex));
     // Provisional / stub packs often have fewer pages than a prior viewport pack.
@@ -374,6 +382,20 @@ export function resolvePackRestore(
         deferredPageAnchor: true,
       };
     }
+
+    // Prefer page when stream lands behind the saved page (poisoned stream).
+    // Prefer stream when it reaches the saved page or beyond (font/viewport reflow).
+    if (streamAnchor.streamIndex > 0 && streamPage >= rawPage) {
+      return {
+        pageIndex: streamPage,
+        localBlockIndex: Math.max(0, streamAnchor.streamIndex - (pageStarts[streamPage] ?? 0)),
+        wordIndex: streamWord,
+        streamIndex: streamAnchor.streamIndex,
+        consumedPageAnchor: true,
+        deferredPageAnchor: false,
+      };
+    }
+
     const start = pageStarts[rawPage] ?? 0;
     const blockCount = Math.max(1, pageBlockCounts[rawPage] ?? 1);
     const localBlockIndex = Math.min(Math.max(0, Math.floor(pageAnchor.blockIndex)), blockCount - 1);
@@ -388,13 +410,12 @@ export function resolvePackRestore(
     };
   }
 
-  const pageIndex = findPageForStreamIndex(pageStarts, streamAnchor.streamIndex);
-  const start = pageStarts[pageIndex] ?? 0;
+  const start = pageStarts[streamPage] ?? 0;
   const localBlockIndex = Math.max(0, streamAnchor.streamIndex - start);
   return {
-    pageIndex,
+    pageIndex: streamPage,
     localBlockIndex,
-    wordIndex: Math.max(0, streamAnchor.wordIndex),
+    wordIndex: streamWord,
     streamIndex: streamAnchor.streamIndex,
     consumedPageAnchor: false,
     deferredPageAnchor: false,

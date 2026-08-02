@@ -1008,18 +1008,18 @@ export default function AppV2() {
       } else if (streamAnchorDocIdRef.current !== activeDocument.id) {
         const wordIndex = Math.max(0, activeDocument.activeWordIndex ?? 0);
         const savedPage = Math.max(0, activeDocument.currentPageIndex ?? 0);
-        // Prefer page when stream is missing OR poisoned (0 while page > 0).
+        const savedBlock = Math.max(0, activeDocument.activeBlockIndex ?? 0);
+        // Prefer page when stream is missing OR impossibly behind saved page.
         const preferPage = shouldPreferPageResume(savedPage, activeDocument.activeStreamIndex);
+        // Always keep a page anchor when we have a real saved page — resolvePackRestore
+        // uses it if stream maps behind that page (poison), else prefers stream (reflow).
+        pageAnchorRef.current = savedPage > 0
+          ? { pageIndex: savedPage, blockIndex: savedBlock, wordIndex }
+          : null;
         if (preferPage) {
-          pageAnchorRef.current = {
-            pageIndex: savedPage,
-            blockIndex: Math.max(0, activeDocument.activeBlockIndex ?? 0),
-            wordIndex,
-          };
           streamAnchorRef.current = { streamIndex: 0, wordIndex };
-          needsStreamHealRef.current = savedPage > 0;
+          needsStreamHealRef.current = true;
         } else {
-          pageAnchorRef.current = null;
           streamAnchorRef.current = {
             streamIndex: Math.max(0, activeDocument.activeStreamIndex ?? 0),
             wordIndex,
@@ -1032,7 +1032,7 @@ export default function AppV2() {
           preferPage,
           savedPage,
           savedStream: activeDocument.activeStreamIndex,
-          savedBlock: activeDocument.activeBlockIndex,
+          savedBlock,
           savedWord: wordIndex,
           pageAnchor: pageAnchorRef.current,
           streamAnchor: streamAnchorRef.current,
@@ -1219,14 +1219,36 @@ export default function AppV2() {
     localBlockIndex: number,
     wordIndex: number,
   ) => {
+    const savedPage = activeDocument
+      ? Math.max(0, activeDocument.currentPageIndex ?? 0)
+      : 0;
     debugLog('resume', 'handleViewportRestore', {
       nextPage,
       localBlockIndex,
       wordIndex,
+      savedPage,
       streamAnchor: streamAnchorRef.current,
       needsStreamHeal: needsStreamHealRef.current,
       pageAnchorRemaining: pageAnchorRef.current,
     });
+    // Never snap the UI behind a trusted saved page — that was the wipe loop:
+    // restore to page 1 → queueProgress → cloud poisoned to page 1.
+    if (nextPage < savedPage) {
+      debugLog('resume', 'reject regressive restore', {
+        nextPage,
+        savedPage,
+        streamAnchor: streamAnchorRef.current,
+      });
+      if (savedPage > 0 && !pageAnchorRef.current) {
+        pageAnchorRef.current = {
+          pageIndex: savedPage,
+          blockIndex: Math.max(0, activeDocument?.activeBlockIndex ?? 0),
+          wordIndex: Math.max(0, activeDocument?.activeWordIndex ?? wordIndex),
+        };
+        needsStreamHealRef.current = true;
+      }
+      return;
+    }
     setPageIndex(nextPage);
     setSavedBlockIndex(localBlockIndex);
     setSavedWordIndex(wordIndex);
@@ -1250,7 +1272,7 @@ export default function AppV2() {
         activeStreamIndex: streamIndex,
       });
     }
-  }, [activeDocumentId, persistDocumentProgress]);
+  }, [activeDocument, activeDocumentId, persistDocumentProgress]);
 
   const {
     pages: viewportPages,

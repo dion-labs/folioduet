@@ -78,6 +78,18 @@ export function isDebug(...scopes: Array<DebugScope | string>): boolean {
   return scopes.some((scope) => active.has(scope));
 }
 
+function serializeDebugData(data: unknown): string {
+  try {
+    return JSON.stringify(data, (_key, value) => {
+      if (value === undefined) return '(undefined)';
+      if (typeof value === 'number' && !Number.isFinite(value)) return String(value);
+      return value;
+    });
+  } catch {
+    return String(data);
+  }
+}
+
 export function debugLog(
   scope: DebugScope | string,
   message: string,
@@ -86,7 +98,8 @@ export function debugLog(
   if (!isDebug(scope)) return;
   const prefix = `[PageEcho:${scope}]`;
   if (data !== undefined) {
-    console.info(prefix, message, data);
+    // Single string so Chrome copy/paste keeps fields (no collapsed Objects).
+    console.info(`${prefix} ${message} ${serializeDebugData(data)}`);
   } else {
     console.info(prefix, message);
   }
