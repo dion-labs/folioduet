@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ensureFishVoiceModel,
+  fetchFishVoiceModel,
   fetchFishVoiceTitle,
   formatFishVoiceLabel,
   listFishVoices,
@@ -80,6 +81,35 @@ describe('listFishVoices', () => {
     ]);
     expect(peekFishVoiceTitle('voice-1')).toBe('Sarah');
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('sort_by=score');
+  });
+});
+
+describe('fetchFishVoiceModel', () => {
+  it('returns title and description for a single model', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _id: 'voice-1',
+        title: 'Sarah',
+        description: 'An engaged speaker.',
+        languages: ['en'],
+        tags: ['female'],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('sessionStorage', {
+      getItem: () => null,
+      setItem: vi.fn(),
+    });
+
+    await expect(fetchFishVoiceModel('voice-1')).resolves.toEqual({
+      id: 'voice-1',
+      title: 'Sarah',
+      description: 'An engaged speaker.',
+      languages: ['en'],
+      tags: ['female'],
+    });
+    expect(peekFishVoiceTitle('voice-1')).toBe('Sarah');
   });
 });
 

@@ -160,6 +160,22 @@ export async function listFishVoices(options?: {
   return request;
 }
 
+/** Fetch one public model (title + description). */
+export async function fetchFishVoiceModel(voiceId: string): Promise<FishVoiceModel | null> {
+  const id = voiceId.trim();
+  if (!id) return null;
+  try {
+    const response = await fetch(`https://api.fish.audio/model/${encodeURIComponent(id)}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as Record<string, unknown>;
+    return normalizeModel(data);
+  } catch {
+    return null;
+  }
+}
+
 /** Ensure a selected voice id is represented in a picker list. */
 export async function ensureFishVoiceModel(
   voiceId: string,
@@ -169,36 +185,16 @@ export async function ensureFishVoiceModel(
   if (!id) return existing;
   if (existing.some((voice) => voice.id === id)) return existing;
 
-  try {
-    const response = await fetch(`https://api.fish.audio/model/${encodeURIComponent(id)}`, {
-      headers: { Accept: 'application/json' },
-    });
-    if (!response.ok) {
-      return [
-        {
-          id,
-          title: peekFishVoiceTitle(id) || 'Custom voice',
-          description: 'Selected reference ID',
-          languages: [],
-          tags: [],
-        },
-        ...existing,
-      ];
-    }
-    const data = (await response.json()) as Record<string, unknown>;
-    const model = normalizeModel(data);
-    if (!model) return existing;
-    return [model, ...existing];
-  } catch {
-    return [
-      {
-        id,
-        title: peekFishVoiceTitle(id) || 'Custom voice',
-        description: 'Selected reference ID',
-        languages: [],
-        tags: [],
-      },
-      ...existing,
-    ];
-  }
+  const model = await fetchFishVoiceModel(id);
+  if (model) return [model, ...existing];
+  return [
+    {
+      id,
+      title: peekFishVoiceTitle(id) || 'Custom voice',
+      description: 'Selected reference ID',
+      languages: [],
+      tags: [],
+    },
+    ...existing,
+  ];
 }

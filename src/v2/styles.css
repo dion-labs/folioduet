@@ -2120,6 +2120,68 @@
   margin-top: 0;
 }
 
+.pe-voice-picker-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--pe-text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pe-voice-picker-current {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  text-align: left;
+  color: inherit;
+  background: var(--pe-surface);
+  border: 1px solid var(--pe-border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.pe-voice-picker-current:hover {
+  border-color: color-mix(in srgb, var(--pe-accent) 40%, var(--pe-border));
+  background: color-mix(in srgb, var(--pe-accent) 6%, var(--pe-surface));
+}
+
+.pe-voice-picker-change {
+  margin-top: 4px;
+  color: var(--pe-accent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.pe-voice-picker-edit-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.pe-voice-picker-edit-header .pe-voice-picker-label {
+  margin-bottom: 0;
+}
+
+.pe-voice-picker-edit-header .pe-voice-picker-custom-toggle {
+  margin-top: 0;
+}
+
+.pe-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .pe-voice-picker-list {
   margin-top: 10px;
   max-height: 240px;
