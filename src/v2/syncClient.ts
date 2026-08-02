@@ -7,6 +7,7 @@ import {
   putFirebaseLibrary,
   putFirebasePreferences,
   putFirebaseSecrets,
+  readFirebaseSecrets,
   uploadProcessedPages,
 } from './firebase/sync';
 
@@ -106,6 +107,16 @@ export async function putSecrets(input: {
       body: JSON.stringify(input),
     }),
   );
+}
+
+export async function readSecrets(): Promise<{
+  inworldApiKey: string;
+  fishAudioApiKey: string;
+}> {
+  if (usesFirebaseSync()) {
+    return readFirebaseSecrets(requireUid());
+  }
+  return readJson(await fetch('/api/sync/secrets'));
 }
 
 /**

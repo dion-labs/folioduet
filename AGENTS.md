@@ -65,10 +65,11 @@ Do **not** reuse `dionlabs-fe92e` unless you are deploying the official Dion Lab
 
 1. In Cloudflare: **Workers & Pages → Create → Import a repository** → this GitHub repo.
 2. Settings: project name e.g. `pageecho`, production branch `main`, framework **Vite**, build `npm run build`, output `dist`.
-3. Add Production env vars: all needed `VITE_FIREBASE_*`, optional `VITE_FISH_AUDIO_SPONSOR_KEY`, `VITE_GITHUB_REPO_URL`, `VITE_GITHUB_SPONSORS_URL`.
+3. Add Production env vars: all needed `VITE_FIREBASE_*`, `VITE_FISH_AUDIO_SPONSOR_KEY` (or `FISH_AUDIO_API_KEY`), optional `VITE_GITHUB_REPO_URL`, `VITE_GITHUB_SPONSORS_URL`.
 4. After create: disable automatic **preview / PR** deployments so only `main` ships.
 5. Attach a custom domain; add that host to Firebase Auth **Authorized domains**.
 6. Set `VITE_FIREBASE_AUTH_DOMAIN` to `<project>.firebaseapp.com` (not the custom domain). Production Pages has **no** `/__/auth` proxy; rewriting authDomain to the site host makes Google sign-in open the SPA (guest page). Local Vite still proxies `/__/auth` in `npm run dev`.
+7. Fish TTS on Pages uses `functions/api/tts/synthesize.ts` (not the Node server). Without the sponsor/BYOK key on the Function, playback falls back to system voice.
 
 ## Data model (short)
 

@@ -71,6 +71,7 @@ Production is **Cloudflare Pages** connected to this GitHub repo:
 - Production branch: `main`
 - Put `VITE_*` values in the Pages project **Environment variables** (Production)
 - `VITE_FIREBASE_AUTH_DOMAIN` must be `<project>.firebaseapp.com` (not the custom domain)
+- `VITE_FISH_AUDIO_SPONSOR_KEY` (or `FISH_AUDIO_API_KEY`) is required for Fish TTS — the SPA calls `/api/tts/synthesize`, served by a **Pages Function** (Fish’s API has no browser CORS)
 - Disable automatic **preview / PR** deployments in Pages settings if you only want `main` live
 
 Attach a custom domain, then add that host to Firebase Auth authorized domains.

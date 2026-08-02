@@ -77,6 +77,7 @@ import {
   signOutUser,
   subscribeAuth,
 } from './firebase/auth';
+import { readFishSponsorKey } from './firebase/config';
 import {
   ensureCatalogSamplePages,
   fetchCatalogAudioClips,
@@ -111,6 +112,7 @@ import {
   putLibrary,
   putPreferences,
   putSecrets,
+  readSecrets,
   setSyncAuthUid,
   syncProcessedPages,
   toSyncedPreferences,
@@ -246,6 +248,7 @@ export default function AppV2() {
   const [deviceSyncStatus, setDeviceSyncStatus] = useState<DeviceSyncStatus>('idle');
   const [inworldServerStatus, setInworldServerStatus] = useState<TtsServerStatus>('checking');
   const [fishAudioServerStatus, setFishAudioServerStatus] = useState<TtsServerStatus>('checking');
+  const [ttsSecrets, setTtsSecrets] = useState({ inworldApiKey: '', fishAudioApiKey: '' });
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [libraryOpen, setLibraryOpen] = useState(() => firebaseMode || !loadActiveDocumentId());
@@ -344,9 +347,12 @@ export default function AppV2() {
       volume: preferences.volume,
       inworldEnabled: preferences.inworldEnabled || preferences.fishAudioEnabled,
       inworldEndpoint: '/api/tts/synthesize',
+      inworldApiKey: ttsSecrets.inworldApiKey || undefined,
       inworldVoiceId: preferences.inworldVoiceId,
       provider: preferences.fishAudioEnabled ? ('fish-audio' as const) : ('inworld' as const),
       fishAudioVoiceId: preferences.fishAudioVoiceId,
+      // Sponsor key lives on the Pages Function / local Node server; pass BYOK only.
+      fishAudioApiKey: ttsSecrets.fishAudioApiKey || undefined,
       onAudioFetched: usingDefaultSharedVoice
         ? (clip: {
           text: string;
@@ -375,6 +381,8 @@ export default function AppV2() {
     preferences.fishAudioVoiceId,
     preferences.playbackRate,
     preferences.volume,
+    ttsSecrets.fishAudioApiKey,
+    ttsSecrets.inworldApiKey,
   ]);
 
   const tts = useContinuousTTS({
@@ -607,8 +615,17 @@ export default function AppV2() {
           await putLibrary([], null);
         }
 
+        const sponsorFish = Boolean(readFishSponsorKey());
         setInworldServerStatus(bootstrap.secrets.inworldConfigured ? 'ready' : 'missing-credential');
-        setFishAudioServerStatus(bootstrap.secrets.fishAudioConfigured ? 'ready' : 'missing-credential');
+        setFishAudioServerStatus(
+          bootstrap.secrets.fishAudioConfigured || sponsorFish ? 'ready' : 'missing-credential',
+        );
+        try {
+          const secrets = await readSecrets();
+          if (active) setTtsSecrets(secrets);
+        } catch {
+          if (active) setTtsSecrets({ inworldApiKey: '', fishAudioApiKey: '' });
+        }
         setDeviceSyncStatus('synced');
         setLastSyncedAt(Date.now());
       })
@@ -616,7 +633,7 @@ export default function AppV2() {
         if (!active) return;
         setDeviceSyncStatus('offline');
         setInworldServerStatus('offline');
-        setFishAudioServerStatus('offline');
+        setFishAudioServerStatus(readFishSponsorKey() ? 'ready' : 'offline');
       })
       .finally(() => {
         if (active) setHydrateReady(true);
@@ -1306,8 +1323,12 @@ export default function AppV2() {
     clearFishAudio?: boolean;
   }) => {
     const status = await putSecrets(input);
+    const secrets = await readSecrets().catch(() => ({ inworldApiKey: '', fishAudioApiKey: '' }));
+    setTtsSecrets(secrets);
     setInworldServerStatus(status.inworldConfigured ? 'ready' : 'missing-credential');
-    setFishAudioServerStatus(status.fishAudioConfigured ? 'ready' : 'missing-credential');
+    setFishAudioServerStatus(
+      status.fishAudioConfigured || Boolean(readFishSponsorKey()) ? 'ready' : 'missing-credential',
+    );
     setDeviceSyncStatus('synced');
     setLastSyncedAt(Date.now());
   }, []);
