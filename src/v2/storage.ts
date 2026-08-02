@@ -4,6 +4,7 @@ import type { LibraryDocument, ReaderPreferences } from './types';
 const LIBRARY_KEY = 'bimodal-library';
 const ACTIVE_DOCUMENT_KEY = 'bimodal-active-doc';
 const PREFERENCES_KEY = 'pageecho-v2-preferences';
+const FISH_DEFAULT_MIGRATION_KEY = 'pageecho-fish-default-v1';
 
 const defaultPreferences: ReaderPreferences = {
   appearance: 'dark',
@@ -13,10 +14,24 @@ const defaultPreferences: ReaderPreferences = {
   inworldEnabled: false,
   inworldVoiceId: 'Ashley',
   inworldApiKey: '',
-  fishAudioEnabled: false,
+  fishAudioEnabled: true,
   fishAudioVoiceId: '933563129e564b19a115bedd57b7406a',
   fishAudioApiKey: '',
 };
+
+/** One-time: old default left both neural engines off → system TTS. Flip to Fish. */
+function migrateFishDefaultOn(preferences: ReaderPreferences): ReaderPreferences {
+  try {
+    if (localStorage.getItem(FISH_DEFAULT_MIGRATION_KEY) === '1') return preferences;
+    localStorage.setItem(FISH_DEFAULT_MIGRATION_KEY, '1');
+    if (!preferences.fishAudioEnabled && !preferences.inworldEnabled) {
+      return { ...preferences, fishAudioEnabled: true };
+    }
+  } catch {
+    // ignore quota / private mode
+  }
+  return preferences;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -26,7 +41,7 @@ function asNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
-function normalizeDocument(value: unknown): LibraryDocument | null {
+export function normalizeDocument(value: unknown): LibraryDocument | null {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.name !== 'string') {
     return null;
   }
@@ -49,6 +64,9 @@ function normalizeDocument(value: unknown): LibraryDocument | null {
     pairedPdfPages: typeof value.pairedPdfPages === 'number' ? value.pairedPdfPages : undefined,
     isSample: value.isSample === true,
     url: typeof value.url === 'string' ? value.url : undefined,
+    catalogSampleId: typeof value.catalogSampleId === 'string' ? value.catalogSampleId : undefined,
+    hasProcessedContent: value.hasProcessedContent === true,
+    processedFormat: value.processedFormat === 'markdown-pages' ? 'markdown-pages' : null,
   };
 }
 
@@ -86,21 +104,21 @@ export function loadPreferences(): ReaderPreferences {
   try {
     const saved = localStorage.getItem(PREFERENCES_KEY);
     if (!saved) {
-      return {
+      return migrateFishDefaultOn({
         ...defaultPreferences,
         appearance: localStorage.getItem('bimodal-dark-mode') === 'false' ? 'light' : 'dark',
         volume: Number(localStorage.getItem('bimodal-tts-volume')) || 1,
         inworldEnabled: localStorage.getItem('bimodal-inworld-enabled') === 'true',
         inworldVoiceId: localStorage.getItem('bimodal-inworld-voiceid') || 'Ashley',
-        fishAudioEnabled: localStorage.getItem('bimodal-fishaudio-enabled') === 'true',
+        fishAudioEnabled: localStorage.getItem('bimodal-fishaudio-enabled') !== 'false',
         fishAudioVoiceId: localStorage.getItem('bimodal-fishaudio-voiceid') || defaultPreferences.fishAudioVoiceId,
-      };
+      });
     }
 
     const parsed: unknown = JSON.parse(saved);
     if (!isRecord(parsed)) return defaultPreferences;
 
-    return {
+    return migrateFishDefaultOn({
       ...defaultPreferences,
       appearance: parsed.appearance === 'light' ? 'light' : 'dark',
       fontScale: asNumber(parsed.fontScale, 1),
@@ -109,13 +127,15 @@ export function loadPreferences(): ReaderPreferences {
       inworldEnabled: parsed.inworldEnabled === true,
       inworldVoiceId: typeof parsed.inworldVoiceId === 'string' ? parsed.inworldVoiceId : defaultPreferences.inworldVoiceId,
       inworldApiKey: '',
-      fishAudioEnabled: parsed.fishAudioEnabled === true,
+      fishAudioEnabled: typeof parsed.fishAudioEnabled === 'boolean'
+        ? parsed.fishAudioEnabled
+        : defaultPreferences.fishAudioEnabled,
       fishAudioVoiceId:
         typeof parsed.fishAudioVoiceId === 'string'
           ? parsed.fishAudioVoiceId
           : defaultPreferences.fishAudioVoiceId,
       fishAudioApiKey: '',
-    };
+    });
   } catch {
     return defaultPreferences;
   }

@@ -233,6 +233,17 @@ export function useContinuousTTS({
     setPlaybackState('idle');
   }, []);
 
+  const primeAudioCache = useCallback((
+    clips: Array<{
+      text: string;
+      provider: string;
+      voiceId: string;
+      audioContent: string;
+    }>,
+  ) => {
+    engineRef.current?.primeAudioCache(clips);
+  }, []);
+
   return {
     playbackState,
     isPlaying: playbackState === 'playing' || playbackState === 'paused' || playbackState === 'buffering',
@@ -244,5 +255,6 @@ export function useContinuousTTS({
     pause,
     resume,
     stop,
+    primeAudioCache,
   };
 }

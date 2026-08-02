@@ -137,6 +137,13 @@ export interface TTSEngineConfig {
   provider?: 'inworld' | 'fish-audio';
   fishAudioVoiceId?: string;
   fishAudioApiKey?: string;
+  /** Optional hook after a successful neural TTS fetch (used to warm shared sample audio). */
+  onAudioFetched?: (clip: {
+    text: string;
+    provider: string;
+    voiceId: string;
+    audioContent: string;
+  }) => void;
 }
 
 export class TTSEngine {
@@ -166,13 +173,14 @@ export class TTSEngine {
   }[] = [];
 
   // Configuration options
-  private config: Required<Omit<TTSEngineConfig, 'onWordBoundary' | 'onEnd' | 'onError' | 'onPause' | 'onResume' | 'onStop' | 'inworldEnabled' | 'inworldApiKey' | 'inworldEndpoint' | 'inworldVoiceId' | 'provider' | 'fishAudioVoiceId' | 'fishAudioApiKey'>> & {
+  private config: Required<Omit<TTSEngineConfig, 'onWordBoundary' | 'onEnd' | 'onError' | 'onPause' | 'onResume' | 'onStop' | 'inworldEnabled' | 'inworldApiKey' | 'inworldEndpoint' | 'inworldVoiceId' | 'provider' | 'fishAudioVoiceId' | 'fishAudioApiKey' | 'onAudioFetched'>> & {
     onWordBoundary: TTSEngineConfig['onWordBoundary'];
     onEnd: TTSEngineConfig['onEnd'];
     onError: TTSEngineConfig['onError'];
     onPause: TTSEngineConfig['onPause'];
     onResume: TTSEngineConfig['onResume'];
     onStop: TTSEngineConfig['onStop'];
+    onAudioFetched?: TTSEngineConfig['onAudioFetched'];
     inworldEnabled?: boolean;
     inworldApiKey?: string;
     inworldEndpoint?: string;
@@ -644,6 +652,19 @@ export class TTSEngine {
         timestampInfo: data.timestampInfo,
       };
       this.inworldCache.set(cacheKey, audio);
+      const voiceId = provider === 'fish-audio'
+        ? (this.config.fishAudioVoiceId || '933563129e564b19a115bedd57b7406a')
+        : (this.config.inworldVoiceId || 'Ashley');
+      try {
+        this.config.onAudioFetched?.({
+          text,
+          provider,
+          voiceId,
+          audioContent: data.audioContent,
+        });
+      } catch {
+        // publish hooks must never break playback
+      }
       return audio;
     })();
 
@@ -825,6 +846,28 @@ export class TTSEngine {
     this.cleanup();
 
     if (this.config.onStop) this.config.onStop();
+  }
+
+  /**
+   * Prime the neural TTS cache with shared/prebaked clips.
+   * Cache keys match live synthesis (`provider\\0voiceId\\0text`).
+   */
+  primeAudioCache(clips: Array<{
+    text: string;
+    provider: string;
+    voiceId: string;
+    audioContent: string;
+    timestampInfo?: unknown;
+  }>) {
+    for (const clip of clips) {
+      if (!clip.text || !clip.audioContent) continue;
+      const key = `${clip.provider}\u0000${clip.voiceId}\u0000${clip.text}`;
+      if (this.inworldCache.has(key)) continue;
+      this.inworldCache.set(key, {
+        audioContent: clip.audioContent,
+        timestampInfo: clip.timestampInfo,
+      });
+    }
   }
 
   updateConfig(newConfig: Partial<TTSEngineConfig>) {

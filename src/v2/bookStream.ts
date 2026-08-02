@@ -127,6 +127,37 @@ export function expandStreamForBudget(
   return out;
 }
 
+/** Same as expandStreamForBudget, but yields so page turns stay interactive. */
+export async function expandStreamForBudgetAsync(
+  stream: BookStreamBlock[],
+  budget: number,
+  measureHeight: (block: BookStreamBlock) => number,
+  knownHeights: number[] | undefined,
+  options: {
+    chunkSize?: number;
+    signal?: { cancelled: boolean };
+    yieldFn: () => Promise<void>;
+  },
+): Promise<BookStreamBlock[]> {
+  if (stream.length === 0 || budget <= 0) return stream;
+  const chunkSize = Math.max(4, options.chunkSize ?? 8);
+  const out: BookStreamBlock[] = [];
+  for (let index = 0; index < stream.length; index += 1) {
+    if (options.signal?.cancelled) throw new DOMException('Aborted', 'AbortError');
+    const block = stream[index];
+    const known = knownHeights?.[index];
+    if (block.chapterBreak || (known !== undefined ? known <= budget : measureHeight(block) <= budget)) {
+      out.push(block);
+    } else {
+      out.push(...splitBlockToFit(block, budget, measureHeight));
+    }
+    if (index > 0 && index % chunkSize === 0) {
+      await options.yieldFn();
+    }
+  }
+  return out;
+}
+
 /** Pack a stream into pages using pre-measured block heights (viewport-adaptive). */
 export function packStreamByHeight(
   stream: BookStreamBlock[],

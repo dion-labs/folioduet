@@ -344,7 +344,10 @@ export async function startPageEchoServer({ isDev = false } = {}) {
     viteDevServer = await createViteServer({
       server: {
         middlewareMode: true,
+        // Share this HTTP listener so HMR works through Tailscale HTTPS (:8443)
+        // as well as plain http://localhost:5173.
         hmr: { server },
+        allowedHosts: ['.ts.net', 'localhost', '127.0.0.1'],
       },
       appType: 'spa',
     });

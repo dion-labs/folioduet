@@ -6,29 +6,25 @@ import {
   ChevronRight,
   Columns2,
   FileText,
-  Library,
+  Heart,
   Link2,
   ListTree,
   LoaderCircle,
   Menu,
-  Moon,
-  MoreHorizontal,
   Pause,
   Play,
   Plus,
   Settings,
+  Smartphone,
   Square,
-  Sun,
   Upload,
   Volume2,
-  Wifi,
-  WifiOff,
   X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { BimodalPDFViewer } from '../components/BimodalPDFViewer';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { User } from 'firebase/auth';
 import type { MarkdownBlock } from '../hooks/useTTS';
 import { streamPageToMarkdownBlocks } from './bookStream';
 import {
@@ -36,13 +32,63 @@ import {
   findCurrentChapterIndex,
   locateChaptersOnPages,
 } from './chapters';
-import { calculateProgress, loadMarkdownBook, loadMarkdownStream, type BookStreamBlock } from './documents';
+import {
+  buildBookStream,
+  calculateProgress,
+  extractMarkdownPages,
+  loadMarkdownBook,
+  loadMarkdownStream,
+  type BookStreamBlock,
+} from './documents';
 import { ChapterListPanel } from './components/ChapterListPanel';
+import { ConsentBanner } from './components/ConsentBanner';
+import { GitHubMark } from './components/GitHubMark';
+import { HandoffDialog } from './components/HandoffDialog';
+import { HandoffResumeDialog } from './components/HandoffResumeDialog';
 import { ImportDialog } from './components/ImportDialog';
+import { LegalDialog } from './components/LegalDialog';
 import { LibrarySidebar } from './components/LibrarySidebar';
+import { LoginGate } from './components/LoginGate';
 import { ReaderWords } from './components/ReaderWords';
 import { SettingsPanel } from './components/SettingsPanel';
+import { parseLegalHash, type LegalDocId } from './legal';
+import {
+  buildHandoffUrl,
+  clearHandoffFromUrl,
+  clearPendingHandoff,
+  loadPendingHandoff,
+  readHandoffFromLocation,
+  savePendingHandoff,
+  type HandoffTarget,
+} from './handoff';
+import { GITHUB_REPO_URL, GITHUB_SPONSORS_URL } from './projectLinks';
+import {
+  TELL_TALE_DEFAULT_AUDIO_PROVIDER,
+  TELL_TALE_DEFAULT_AUDIO_VOICE_ID,
+  TELL_TALE_LIBRARY_DOC_ID,
+  TELL_TALE_SAMPLE_ID,
+} from './catalog/constants';
+import { installGlobalErrorReporting } from './firebase/analytics';
+import { isFirebaseConfigured } from './firebase/app';
+import {
+  completeGoogleRedirectIfPresent,
+  ensureAnonymousSession,
+  signInWithGoogle,
+  signOutUser,
+  subscribeAuth,
+} from './firebase/auth';
+import {
+  ensureCatalogSamplePages,
+  fetchCatalogAudioClips,
+  fetchCatalogSamplePages,
+  publishCatalogAudioClip,
+} from './firebase/catalog';
 import { useViewportBookPages } from './useViewportBookPages';
+
+const BimodalPDFViewer = lazy(async () => {
+  const module = await import('../components/BimodalPDFViewer');
+  return { default: module.BimodalPDFViewer };
+});
 import {
   createDocumentId,
   deleteDocumentFiles,
@@ -61,11 +107,15 @@ import {
   deleteSyncedDocument,
   downloadDocumentBlob,
   fetchBootstrap,
+  loadProcessedPages,
   putLibrary,
   putPreferences,
   putSecrets,
+  setSyncAuthUid,
+  syncProcessedPages,
   toSyncedPreferences,
   uploadDocumentBlob,
+  usesFirebaseSync,
 } from './syncClient';
 import type {
   DeviceSyncStatus,
@@ -109,9 +159,74 @@ function createLibraryDocument(file: File, totalPages: number): LibraryDocument 
   };
 }
 
+/** Collapse legacy per-user sample copies onto the shared catalog stub id. */
+function normalizeLibraryDocuments(documents: LibraryDocument[]): LibraryDocument[] {
+  const byId = new Map<string, LibraryDocument>();
+  for (const document of documents) {
+    if (document.isSample || document.catalogSampleId === TELL_TALE_SAMPLE_ID) {
+      const prior = byId.get(TELL_TALE_LIBRARY_DOC_ID);
+      const stub: LibraryDocument = {
+        ...(prior ?? document),
+        ...document,
+        id: TELL_TALE_LIBRARY_DOC_ID,
+        name: 'The Tell-Tale Heart',
+        kind: 'markdown-zip',
+        sourceName: document.sourceName || 'The Tell-Tale Heart.zip',
+        isSample: true,
+        catalogSampleId: TELL_TALE_SAMPLE_ID,
+        hasProcessedContent: true,
+        processedFormat: 'markdown-pages',
+        currentPageIndex: Math.max(
+          prior?.currentPageIndex ?? 0,
+          document.currentPageIndex ?? 0,
+        ),
+        updatedAt: Math.max(prior?.updatedAt ?? 0, document.updatedAt ?? 0),
+        addedAt: Math.min(prior?.addedAt ?? document.addedAt, document.addedAt),
+      };
+      byId.set(TELL_TALE_LIBRARY_DOC_ID, stub);
+      continue;
+    }
+    byId.set(document.id, document);
+  }
+  return Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function mergeLibraryDocuments(
+  primary: LibraryDocument[],
+  secondary: LibraryDocument[],
+): LibraryDocument[] {
+  const byId = new Map<string, LibraryDocument>();
+  for (const document of [...secondary, ...primary]) {
+    const prior = byId.get(document.id);
+    if (!prior || document.updatedAt >= prior.updatedAt) {
+      byId.set(document.id, document);
+    }
+  }
+  return normalizeLibraryDocuments(Array.from(byId.values()));
+}
+
+const firebaseMode = isFirebaseConfigured();
+
 export default function AppV2() {
-  const [documents, setDocuments] = useState<LibraryDocument[]>(loadLibrary);
-  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(loadActiveDocumentId);
+  const [authUser, setAuthUser] = useState<User | null | undefined>(
+    firebaseMode ? undefined : null,
+  );
+  const [authBootError, setAuthBootError] = useState<string | null>(null);
+  // In Firebase mode, never paint a previous account's shelf before bootstrap.
+  const [documents, setDocuments] = useState<LibraryDocument[]>(() => (
+    firebaseMode ? [] : normalizeLibraryDocuments(loadLibrary())
+  ));
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(() => {
+    if (firebaseMode) return null;
+    const active = loadActiveDocumentId();
+    if (!active) return null;
+    const library = normalizeLibraryDocuments(loadLibrary());
+    if (library.some((document) => document.id === active)) return active;
+    const legacySample = loadLibrary().find((document) => document.id === active && document.isSample);
+    return legacySample ? TELL_TALE_LIBRARY_DOC_ID : active;
+  });
+  const pendingLibraryMergeRef = useRef<LibraryDocument[] | null>(null);
+  const lastAuthUidRef = useRef<string | null>(null);
   const activeDocument = documents.find((document) => document.id === activeDocumentId) ?? null;
 
   const [pageIndex, setPageIndex] = useState(() => activeDocument?.currentPageIndex ?? 0);
@@ -133,7 +248,7 @@ export default function AppV2() {
   const [fishAudioServerStatus, setFishAudioServerStatus] = useState<TtsServerStatus>('checking');
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [query, setQuery] = useState('');
-  const [libraryOpen, setLibraryOpen] = useState(() => !loadActiveDocumentId());
+  const [libraryOpen, setLibraryOpen] = useState(() => firebaseMode || !loadActiveDocumentId());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -141,10 +256,34 @@ export default function AppV2() {
   const [importError, setImportError] = useState<string | null>(null);
   const [pairBusy, setPairBusy] = useState(false);
   const [hydrateReady, setHydrateReady] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [handoffUrl, setHandoffUrl] = useState('');
+  const [handoffError, setHandoffError] = useState<string | null>(null);
+  const [handoffResume, setHandoffResume] = useState<HandoffTarget | null>(null);
+  const [legalDoc, setLegalDoc] = useState<LegalDocId | null>(() => (
+    typeof window === 'undefined' ? null : parseLegalHash(window.location.hash)
+  ));
 
   const pageChangeRef = useRef<(nextPage: number, source: PageChangeSource) => void>(() => undefined);
   const pendingProgressRef = useRef<PendingProgress | null>(null);
   const progressTimerRef = useRef<number | null>(null);
+  const pendingHandoffRef = useRef<HandoffTarget | null>(null);
+  const handoffArrivalRef = useRef<'url' | 'storage' | null>(null);
+  const handoffBootstrappedRef = useRef(false);
+  const handoffResumeShownRef = useRef(false);
+  if (!handoffBootstrappedRef.current) {
+    handoffBootstrappedRef.current = true;
+    const fromUrl = readHandoffFromLocation();
+    if (fromUrl) {
+      savePendingHandoff(fromUrl);
+      pendingHandoffRef.current = fromUrl;
+      handoffArrivalRef.current = 'url';
+    } else {
+      const stored = loadPendingHandoff();
+      pendingHandoffRef.current = stored;
+      handoffArrivalRef.current = stored ? 'storage' : null;
+    }
+  }
   const skipNextLibraryPushRef = useRef(true);
   const skipNextPreferencesPushRef = useRef(true);
   const readerStageRef = useRef<HTMLElement | null>(null);
@@ -191,15 +330,45 @@ export default function AppV2() {
     }
   }, [activeDocumentId, flushProgress, pageIndex]);
 
-  const ttsConfig = useMemo(() => ({
-    rate: preferences.playbackRate,
-    volume: preferences.volume,
-    inworldEnabled: preferences.inworldEnabled || preferences.fishAudioEnabled,
-    inworldEndpoint: '/api/tts/synthesize',
-    inworldVoiceId: preferences.inworldVoiceId,
-    provider: preferences.fishAudioEnabled ? ('fish-audio' as const) : ('inworld' as const),
-    fishAudioVoiceId: preferences.fishAudioVoiceId,
-  }), [
+  const activeCatalogSampleId = activeDocument?.catalogSampleId
+    ?? (activeDocument?.isSample ? TELL_TALE_SAMPLE_ID : undefined);
+
+  const ttsConfig = useMemo(() => {
+    const usingDefaultSharedVoice = Boolean(
+      activeCatalogSampleId
+      && preferences.fishAudioEnabled
+      && preferences.fishAudioVoiceId === TELL_TALE_DEFAULT_AUDIO_VOICE_ID,
+    );
+    return {
+      rate: preferences.playbackRate,
+      volume: preferences.volume,
+      inworldEnabled: preferences.inworldEnabled || preferences.fishAudioEnabled,
+      inworldEndpoint: '/api/tts/synthesize',
+      inworldVoiceId: preferences.inworldVoiceId,
+      provider: preferences.fishAudioEnabled ? ('fish-audio' as const) : ('inworld' as const),
+      fishAudioVoiceId: preferences.fishAudioVoiceId,
+      onAudioFetched: usingDefaultSharedVoice
+        ? (clip: {
+          text: string;
+          provider: string;
+          voiceId: string;
+          audioContent: string;
+        }) => {
+          if (!activeCatalogSampleId) return;
+          if (clip.provider !== TELL_TALE_DEFAULT_AUDIO_PROVIDER) return;
+          if (clip.voiceId !== TELL_TALE_DEFAULT_AUDIO_VOICE_ID) return;
+          void publishCatalogAudioClip(activeCatalogSampleId, {
+            text: clip.text,
+            provider: clip.provider,
+            voiceId: clip.voiceId,
+            mime: 'audio/mpeg',
+            audioContent: clip.audioContent,
+          }).catch(() => undefined);
+        }
+        : undefined,
+    };
+  }, [
+    activeCatalogSampleId,
     preferences.inworldEnabled,
     preferences.inworldVoiceId,
     preferences.fishAudioEnabled,
@@ -221,6 +390,15 @@ export default function AppV2() {
   });
 
   useEffect(() => {
+    if (!activeCatalogSampleId || !usesFirebaseSync()) return;
+    let cancelled = false;
+    void fetchCatalogAudioClips(activeCatalogSampleId).then((clips) => {
+      if (!cancelled && clips.length > 0) tts.primeAudioCache(clips);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [activeCatalogSampleId, tts.primeAudioCache]);
+
+  useEffect(() => {
     saveLibrary(documents);
   }, [documents]);
 
@@ -233,6 +411,84 @@ export default function AppV2() {
   }, [preferences]);
 
   useEffect(() => {
+    const uninstall = installGlobalErrorReporting();
+    if (!firebaseMode) {
+      setAuthUser(null);
+      setSyncAuthUid(null);
+      setHydrateReady(true);
+      return uninstall;
+    }
+
+    let cancelled = false;
+    let unsubscribe = () => {};
+
+    // Finish redirect BEFORE subscribing so third-party-cookie-safe helper
+    // storage is read on the same tick as session restore. Cap wait so a
+    // stuck /__/auth proxy can’t leave the login spinner forever.
+    void (async () => {
+      try {
+        await Promise.race([
+          completeGoogleRedirectIfPresent(),
+          new Promise<null>((resolve) => {
+            window.setTimeout(() => resolve(null), 8000);
+          }),
+        ]);
+      } catch (error) {
+        if (!cancelled) console.error('[PageEcho] Google redirect sign-in failed', error);
+      }
+      if (cancelled) return;
+      unsubscribe = subscribeAuth((user) => {
+        if (!user) {
+          void ensureAnonymousSession().catch((error) => {
+            console.error('[PageEcho] Anonymous sign-in failed', error);
+            if (!cancelled) {
+              setAuthBootError(
+                error instanceof Error ? error.message : 'Anonymous sign-in failed.',
+              );
+              setAuthUser(null);
+            }
+          });
+          return;
+        }
+
+        const switchedAccount = Boolean(
+          lastAuthUidRef.current && lastAuthUidRef.current !== user.uid,
+        );
+        lastAuthUidRef.current = user.uid;
+
+        // Guests (and any uid switch) must not paint another account's active book.
+        if (user.isAnonymous || switchedAccount) {
+          setActiveDocumentId(null);
+          saveActiveDocumentId(null);
+          setBookStream(null);
+          setSource(null);
+          setDocumentError(null);
+          setLibraryOpen(true);
+          if (user.isAnonymous && switchedAccount) {
+            setDocuments([]);
+            saveLibrary([]);
+          }
+        }
+
+        setAuthBootError(null);
+        setAuthUser(user);
+        setSyncAuthUid(user.uid);
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      uninstall();
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (firebaseMode && !authUser) {
+      setHydrateReady(false);
+      return;
+    }
+
     let active = true;
     setDeviceSyncStatus('syncing');
     fetchBootstrap()
@@ -249,39 +505,106 @@ export default function AppV2() {
         skipNextPreferencesPushRef.current = true;
 
         if (serverHasPreferences) {
-          setPreferences({
+          const merged = {
             ...localPreferences,
             ...bootstrap.preferences,
             inworldApiKey: '',
             fishAudioApiKey: '',
-          });
+          };
+          // Legacy cloud prefs defaulted Fish off → system TTS; prefer Fish when neither is on.
+          if (!merged.fishAudioEnabled && !merged.inworldEnabled) {
+            merged.fishAudioEnabled = true;
+          }
+          setPreferences(merged);
         } else {
           await putPreferences(toSyncedPreferences(localPreferences));
         }
 
+        const isAnonymous = Boolean(authUser?.isAnonymous);
+
         if (serverHasLibrary) {
-          setDocuments(bootstrap.library);
-          setActiveDocumentId(bootstrap.activeDocumentId);
-          const active = bootstrap.library.find((doc) => doc.id === bootstrap.activeDocumentId);
-          if (active) {
-            setPageIndex(clampPage(active.currentPageIndex, active.totalPages));
-            setSavedBlockIndex(active.activeBlockIndex);
-            setSavedWordIndex(active.activeWordIndex);
+          const pendingMerge = pendingLibraryMergeRef.current;
+          pendingLibraryMergeRef.current = null;
+          const merged = normalizeLibraryDocuments(
+            pendingMerge
+              ? mergeLibraryDocuments(bootstrap.library, pendingMerge)
+              : bootstrap.library,
+          );
+          setDocuments(merged);
+          if (pendingMerge) {
+            await putLibrary(merged, bootstrap.activeDocumentId ?? loadActiveDocumentId());
           }
-        } else if (localHasLibrary) {
-          // Seed the server from this device so the phone can pull next.
-          await putLibrary(localLibrary, loadActiveDocumentId());
-          for (const document of localLibrary) {
-            if (document.isSample) continue;
-            const source = await loadSourceFile(document);
-            if (source instanceof File) {
-              await uploadDocumentBlob(document.id, 'source', source);
-            }
-            if (document.kind === 'markdown-zip') {
-              const paired = await loadPairedPdf(document.id);
-              if (paired) await uploadDocumentBlob(document.id, 'paired-pdf', paired);
+          // Guests land on home — never auto-open a book that may belong to another account's sync.
+          if (isAnonymous) {
+            setActiveDocumentId(null);
+            setLibraryOpen(true);
+          } else {
+            const preferredActive = bootstrap.activeDocumentId
+              && merged.some((doc) => doc.id === bootstrap.activeDocumentId)
+              ? bootstrap.activeDocumentId
+              : (merged[0]?.id ?? null);
+            setActiveDocumentId(preferredActive);
+            const activeDoc = merged.find((doc) => doc.id === preferredActive);
+            if (activeDoc) {
+              setPageIndex(clampPage(activeDoc.currentPageIndex, activeDoc.totalPages));
+              setSavedBlockIndex(activeDoc.activeBlockIndex);
+              setSavedWordIndex(activeDoc.activeWordIndex);
             }
           }
+        } else if (localHasLibrary && !isAnonymous) {
+          const seedLibrary = normalizeLibraryDocuments(
+            pendingLibraryMergeRef.current
+              ? mergeLibraryDocuments(localLibrary, pendingLibraryMergeRef.current)
+              : localLibrary,
+          );
+          pendingLibraryMergeRef.current = null;
+          // Seed cloud/server from this device so other clients can pull next.
+          await putLibrary(seedLibrary, loadActiveDocumentId());
+          setDocuments(seedLibrary);
+          for (const document of seedLibrary) {
+            if (document.isSample || document.catalogSampleId) continue;
+            try {
+              const sourceFile = await loadSourceFile(document);
+              if (usesFirebaseSync()) {
+                if (!(sourceFile instanceof File)) continue;
+                if (document.kind === 'markdown-zip') {
+                  const pages = await extractMarkdownPages(sourceFile);
+                  await syncProcessedPages(
+                    document.id,
+                    pages.map((markdown, pageIndex) => ({ pageIndex, markdown })),
+                  );
+                } else if (document.kind === 'pdf') {
+                  const { extractPdfMarkdownPages } = await import('./pdfStream');
+                  const pages = await extractPdfMarkdownPages(sourceFile);
+                  if (pages.length > 0) {
+                    await syncProcessedPages(
+                      document.id,
+                      pages.map((markdown, pageIndex) => ({ pageIndex, markdown })),
+                    );
+                  }
+                }
+                continue;
+              }
+              if (sourceFile instanceof File) {
+                await uploadDocumentBlob(document.id, 'source', sourceFile);
+              }
+              if (document.kind === 'markdown-zip') {
+                const paired = await loadPairedPdf(document.id);
+                if (paired) await uploadDocumentBlob(document.id, 'paired-pdf', paired);
+              }
+            } catch (error) {
+              console.warn('[PageEcho] Skipped seeding document', document.id, error);
+            }
+          }
+        } else if (isAnonymous) {
+          // Fresh guest: ignore any leftover local library from a previous Google session.
+          pendingLibraryMergeRef.current = null;
+          setDocuments([]);
+          setActiveDocumentId(null);
+          saveLibrary([]);
+          saveActiveDocumentId(null);
+          setLibraryOpen(true);
+          await putLibrary([], null);
         }
 
         setInworldServerStatus(bootstrap.secrets.inworldConfigured ? 'ready' : 'missing-credential');
@@ -301,7 +624,7 @@ export default function AppV2() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [authUser?.uid]);
 
   useEffect(() => {
     if (!hydrateReady) return;
@@ -363,7 +686,8 @@ export default function AppV2() {
       wordIndex: Math.max(0, activeDocument?.activeWordIndex ?? 0),
     };
 
-    if (!activeDocument) return () => { active = false; };
+    // Wait for auth bootstrap so guests don't open a previous account's active book.
+    if (!hydrateReady || !activeDocument) return () => { active = false; };
 
     setDocumentLoading(true);
     Promise.all([
@@ -392,23 +716,124 @@ export default function AppV2() {
         : Promise.resolve(null),
     ]).then(async ([loadedSource, loadedPair]) => {
       if (!active) return;
-      if (!loadedSource) {
-        throw new Error('The original file is not available locally or on the PageEcho server yet.');
+
+      setPairedPdf(loadedPair);
+
+      const catalogSampleId = activeDocument.catalogSampleId
+        || (activeDocument.isSample ? TELL_TALE_SAMPLE_ID : undefined);
+
+      if (catalogSampleId) {
+        let catalogPages = usesFirebaseSync()
+          ? await fetchCatalogSamplePages(catalogSampleId)
+          : null;
+        if (!active) return;
+
+        if (!catalogPages || catalogPages.length === 0) {
+          const response = await fetch('/samples/tell-tale-heart.zip?v=1');
+          if (!response.ok) throw new Error('Could not load the shared sample story.');
+          const blob = await response.blob();
+          const file = new File([blob], 'The Tell-Tale Heart.zip', { type: 'application/zip' });
+          const sourcePages = await extractMarkdownPages(file);
+          if (usesFirebaseSync()) {
+            await ensureCatalogSamplePages(catalogSampleId, sourcePages, {
+              title: 'The Tell-Tale Heart',
+            });
+            catalogPages = sourcePages.map((markdown, pageIndex) => ({ pageIndex, markdown }));
+          } else {
+            catalogPages = sourcePages.map((markdown, pageIndex) => ({ pageIndex, markdown }));
+          }
+        }
+
+        setSource(null);
+        const stream = buildBookStream(
+          catalogPages.map((page) => page.markdown),
+          activeDocument.name,
+        );
+        streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
+        setBookStream(stream);
+        return;
       }
 
-      setSource(loadedSource);
-      setPairedPdf(loadedPair);
       if (activeDocument.kind === 'markdown-zip') {
-        if (!(loadedSource instanceof File)) {
-          throw new Error('This Markdown archive cannot be read from its stored source.');
+        if (loadedSource instanceof File) {
+          setSource(loadedSource);
+          const stream = await loadMarkdownStream(loadedSource, activeDocument.name);
+          if (!active) return;
+          streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
+          setBookStream(stream);
+          return;
         }
-        const stream = await loadMarkdownStream(loadedSource, activeDocument.name);
+
+        const cloudPages = await loadProcessedPages(activeDocument.id);
         if (!active) return;
-        streamAnchorRef.current = {
-          streamIndex: 0,
-          wordIndex: 0,
-        };
+        if (!cloudPages || cloudPages.length === 0) {
+          throw new Error(
+            'This book’s processed text is not on this device. Re-import the ZIP on a device that has the original file.',
+          );
+        }
+        setSource(null);
+        const stream = buildBookStream(
+          cloudPages.map((page) => page.markdown),
+          activeDocument.name,
+        );
+        streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
         setBookStream(stream);
+        return;
+      }
+
+      if (!loadedSource) {
+        // Cross-device: original PDF stays on the importing device; use synced extract.
+        const cloudPages = await loadProcessedPages(activeDocument.id);
+        if (!active) return;
+        if (cloudPages && cloudPages.length > 0) {
+          setSource(null);
+          const stream = buildBookStream(
+            cloudPages.map((page) => page.markdown),
+            activeDocument.name,
+          );
+          streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
+          setBookStream(stream);
+          return;
+        }
+        throw new Error(
+          usesFirebaseSync()
+            ? 'Original PDFs stay on the importing device, and no processed text is synced yet. Re-open the PDF once on the device that has the file (to extract + sync), or re-import it here.'
+            : 'The original file is not available locally or on the PageEcho server yet.',
+        );
+      }
+      setSource(loadedSource);
+      if (loadedSource instanceof File) {
+        // Lazy-load pdf.js only when a PDF opens — keeps first paint light on phones.
+        const { extractPdfMarkdownPages } = await import('./pdfStream');
+        if (!active) return;
+        const sourcePages = await extractPdfMarkdownPages(loadedSource);
+        if (!active) return;
+        if (sourcePages.length === 0) {
+          throw new Error(
+            'This PDF has no selectable text layer (it may be a scan). PageEcho needs text to build the reading view.',
+          );
+        }
+        const stream = buildBookStream(sourcePages, activeDocument.name);
+        streamAnchorRef.current = { streamIndex: 0, wordIndex: 0 };
+        setBookStream(stream);
+
+        // Sync extracted text (not the PDF binary) under the signed-in account.
+        if (usesFirebaseSync()) {
+          try {
+            await syncProcessedPages(
+              activeDocument.id,
+              sourcePages.map((markdown, pageIndex) => ({ pageIndex, markdown })),
+            );
+            if (active) {
+              updateDocument(activeDocument.id, {
+                hasProcessedContent: true,
+                processedFormat: 'markdown-pages',
+              });
+            }
+          } catch {
+            // Reading still works locally; sync can retry on next open.
+          }
+        }
       }
     }).catch((error) => {
       if (active) {
@@ -421,14 +846,14 @@ export default function AppV2() {
     return () => {
       active = false;
     };
-  }, [activeDocument?.id, updateDocument]);
+  }, [activeDocument?.id, hydrateReady, updateDocument]);
 
   const handleViewportPageCount = useCallback((totalPages: number) => {
-    if (!activeDocument || activeDocument.kind !== 'markdown-zip') return;
+    if (!activeDocument || !bookStream) return;
     if (totalPages !== activeDocument.totalPages) {
       updateDocument(activeDocument.id, { totalPages });
     }
-  }, [activeDocument, updateDocument]);
+  }, [activeDocument, bookStream, updateDocument]);
 
   const handleViewportRestore = useCallback((
     nextPage: number,
@@ -444,11 +869,13 @@ export default function AppV2() {
     pages: viewportPages,
     pageStarts,
     ready: viewportReady,
+    packing: viewportPacking,
     peelOverflowFromPage,
   } = useViewportBookPages({
     stream: bookStream,
-    enabled: Boolean(activeDocument?.kind === 'markdown-zip' && bookStream),
+    enabled: Boolean(activeDocument && bookStream),
     fontScale: preferences.fontScale,
+    cacheDocumentId: activeDocumentId,
     stageRef: readerStageRef,
     pageBodyRef,
     anchorRef: streamAnchorRef,
@@ -475,15 +902,12 @@ export default function AppV2() {
     [locatedChapters, pageIndex],
   );
 
-  const currentChapterTitle = currentChapterIndex >= 0
-    ? locatedChapters[currentChapterIndex]?.title
-    : null;
-
-  // Always offer Contents for markdown books — even when detection finds nothing yet.
-  const canOpenChapters = activeDocument?.kind === 'markdown-zip';
+  // Always offer Contents for markdown; for PDFs only when titles were detected.
+  const canOpenChapters = activeDocument?.kind === 'markdown-zip'
+    || locatedChapters.length > 0;
 
   useEffect(() => {
-    if (!activeDocument || activeDocument.kind !== 'markdown-zip' || !viewportReady) return;
+    if (!activeDocument || !bookStream || !viewportReady) return;
     const nextPageIndex = clampPage(pageIndex, viewportPages.length || 1);
     const page = viewportPages[nextPageIndex] ?? [];
     const blocks = streamPageToMarkdownBlocks(page);
@@ -500,16 +924,17 @@ export default function AppV2() {
           pageIndex: nextPageIndex + 1,
           blocks: streamPageToMarkdownBlocks(nextPage).map((block) => block.text),
         });
-  }, [activeDocument?.id, activeDocument?.kind, pageIndex, viewportPages, viewportReady]);
+  }, [activeDocument?.id, bookStream, pageIndex, viewportPages, viewportReady]);
 
   // After paint: if live prose still overflows the band above the footer,
   // peel enough trailing blocks onto the next page in one shot.
+  // Skip while background precise pack is still measuring — peels fight that work.
   useLayoutEffect(() => {
-    const markdownBook = activeDocument?.kind === 'markdown-zip';
+    const viewportBook = Boolean(bookStream);
     const preparing = documentLoading
-      || (markdownBook && !viewportReady)
+      || (viewportBook && !viewportReady)
       || pageContent.pageIndex !== pageIndex;
-    if (!markdownBook || !viewportReady || preparing) return;
+    if (!viewportBook || !viewportReady || preparing || viewportPacking) return;
     const body = pageBodyRef.current;
     const prose = body?.querySelector('.pe-prose') as HTMLElement | null;
     if (!body || !prose) return;
@@ -538,9 +963,10 @@ export default function AppV2() {
 
     peelOverflowFromPage(pageIndex, removeCount);
   }, [
-    activeDocument?.kind,
+    bookStream,
     documentLoading,
     viewportReady,
+    viewportPacking,
     pageContent.pageIndex,
     pageIndex,
     markdownBlocks,
@@ -560,16 +986,35 @@ export default function AppV2() {
       streamIndex: pageStartsRef.current[nextPage] ?? 0,
       wordIndex: 0,
     };
-    setPageContent({ pageIndex: -1, blocks: [] });
-    setNextPageContent({ pageIndex: -1, blocks: [] });
-    setMarkdownBlocks([]);
+    // If this page is already packed, paint it immediately — don't flash the
+    // preparing spinner while background refit is still measuring later pages.
+    const packed = bookStream ? viewportPages[nextPage] : undefined;
+    if (packed) {
+      const blocks = streamPageToMarkdownBlocks(packed);
+      setMarkdownBlocks(blocks);
+      setPageContent({
+        pageIndex: nextPage,
+        blocks: blocks.map((block) => block.text),
+      });
+      const following = viewportPages[nextPage + 1];
+      setNextPageContent(following === undefined
+        ? { pageIndex: -1, blocks: [] }
+        : {
+          pageIndex: nextPage + 1,
+          blocks: streamPageToMarkdownBlocks(following).map((block) => block.text),
+        });
+    } else {
+      setPageContent({ pageIndex: -1, blocks: [] });
+      setNextPageContent({ pageIndex: -1, blocks: [] });
+      setMarkdownBlocks([]);
+    }
     updateDocument(activeDocument.id, {
       currentPageIndex: nextPage,
       activeBlockIndex: 0,
       activeWordIndex: 0,
       updatedAt: Date.now(),
     });
-  }, [activeDocument, flushProgress, tts.stop, updateDocument]);
+  }, [activeDocument, bookStream, flushProgress, tts.stop, updateDocument, viewportPages]);
 
   useEffect(() => {
     pageChangeRef.current = changePage;
@@ -584,7 +1029,143 @@ export default function AppV2() {
     setSavedWordIndex(document.activeWordIndex);
     setReaderView('reading');
     setLibraryOpen(false);
+    setHandoffError(null);
   }, [flushProgress, tts.stop]);
+
+  const applyHandoffTarget = useCallback((target: HandoffTarget) => {
+    const document = documents.find((entry) => entry.id === target.documentId);
+    if (!document) return false;
+    tts.stop();
+    const nextPage = clampPage(target.pageIndex, document.totalPages);
+    setActiveDocumentId(document.id);
+    setPageIndex(nextPage);
+    setSavedBlockIndex(Math.max(0, target.blockIndex));
+    setSavedWordIndex(Math.max(0, target.wordIndex));
+    setReaderView('reading');
+    setLibraryOpen(false);
+    setHandoffError(null);
+    setHandoffResume(null);
+    updateDocument(document.id, {
+      currentPageIndex: nextPage,
+      activeBlockIndex: Math.max(0, target.blockIndex),
+      activeWordIndex: Math.max(0, target.wordIndex),
+      updatedAt: Date.now(),
+    });
+    pendingHandoffRef.current = null;
+    handoffArrivalRef.current = null;
+    handoffResumeShownRef.current = false;
+    clearPendingHandoff();
+    clearHandoffFromUrl();
+    return true;
+  }, [documents, tts.stop, updateDocument]);
+
+  const dismissPendingHandoff = useCallback(() => {
+    pendingHandoffRef.current = null;
+    handoffArrivalRef.current = null;
+    handoffResumeShownRef.current = false;
+    clearPendingHandoff();
+    clearHandoffFromUrl();
+    setHandoffError(null);
+    setHandoffResume(null);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrateReady) return;
+    const target = pendingHandoffRef.current;
+    if (!target) return;
+    clearHandoffFromUrl();
+    savePendingHandoff(target);
+
+    const document = documents.find((entry) => entry.id === target.documentId);
+    const signedIn = Boolean(authUser && !authUser.isAnonymous);
+
+    if (!signedIn) {
+      // Guests never auto-open — keep a local handoff and ask them to sign in.
+      handoffArrivalRef.current = 'storage';
+      setHandoffError(
+        'Sign in with the same Google account to continue this handoff on this device.',
+      );
+      setLibraryOpen(true);
+      return;
+    }
+
+    if (!document) {
+      setHandoffError(
+        'This handoff link points to a book that isn’t in this library yet.',
+      );
+      setLibraryOpen(true);
+      return;
+    }
+
+    // Already signed in when the link opened → jump straight to the page.
+    if (handoffArrivalRef.current === 'url') {
+      applyHandoffTarget(target);
+      return;
+    }
+
+    // Revived after guest → login (or a stored handoff) → ask once.
+    if (!handoffResumeShownRef.current) {
+      handoffResumeShownRef.current = true;
+      setHandoffResume(target);
+      setHandoffError(null);
+    }
+  }, [applyHandoffTarget, authUser, documents, hydrateReady]);
+
+  const openLegalDoc = useCallback((docId: LegalDocId) => {
+    setLegalDoc(docId);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(window.history.state, '', `#${docId}`);
+    }
+  }, []);
+
+  const closeLegalDoc = useCallback(() => {
+    setLegalDoc(null);
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (url.hash === '#terms' || url.hash === '#privacy') {
+      url.hash = '';
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      setLegalDoc(parseLegalHash(window.location.hash));
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const openHandoff = useCallback(() => {
+    if (!activeDocument) return;
+    flushProgress();
+    const blockIndex = tts.isPlaying && tts.activeBlockIndex >= 0 ? tts.activeBlockIndex : savedBlockIndex;
+    const wordIndex = tts.isPlaying && tts.activeWordIndex >= 0 ? tts.activeWordIndex : savedWordIndex;
+    const target: HandoffTarget = {
+      documentId: activeDocument.id,
+      pageIndex,
+      blockIndex: Math.max(0, blockIndex),
+      wordIndex: Math.max(0, wordIndex),
+    };
+    updateDocument(activeDocument.id, {
+      currentPageIndex: pageIndex,
+      activeBlockIndex: target.blockIndex,
+      activeWordIndex: target.wordIndex,
+      updatedAt: Date.now(),
+    });
+    setHandoffUrl(buildHandoffUrl(window.location.origin, target));
+    setHandoffOpen(true);
+  }, [
+    activeDocument,
+    flushProgress,
+    pageIndex,
+    savedBlockIndex,
+    savedWordIndex,
+    tts.activeBlockIndex,
+    tts.activeWordIndex,
+    tts.isPlaying,
+    updateDocument,
+  ]);
 
   const importFiles = useCallback(async (files: File[]) => {
     setImportBusy(true);
@@ -597,13 +1178,25 @@ export default function AppV2() {
           throw new Error(`${file.name} is not a PDF or ZIP archive.`);
         }
         let totalPages = 1;
+        let sourcePages: string[] | null = null;
         if (lowerName.endsWith('.zip')) {
           const provisionalName = file.name.replace(/\.(pdf|zip)$/i, '');
+          sourcePages = await extractMarkdownPages(file);
           totalPages = (await loadMarkdownBook(file, provisionalName)).length;
         }
         const document = createLibraryDocument(file, totalPages);
+        if (sourcePages) {
+          document.hasProcessedContent = true;
+          document.processedFormat = 'markdown-pages';
+        }
         await saveSourceFile(document.id, file);
         await uploadDocumentBlob(document.id, 'source', file);
+        if (sourcePages && usesFirebaseSync()) {
+          await syncProcessedPages(
+            document.id,
+            sourcePages.map((markdown, pageIndex) => ({ pageIndex, markdown })),
+          );
+        }
         imported.push(document);
       }
 
@@ -623,24 +1216,60 @@ export default function AppV2() {
     }
   }, []);
 
-  const importImprovedMmm = useCallback(async () => {
+  const importSampleStory = useCallback(async () => {
     setImportError(null);
+    setImportBusy(true);
     try {
-      const response = await fetch('/samples/mythical-man-month.zip?v=8');
+      const response = await fetch('/samples/tell-tale-heart.zip?v=1');
       if (!response.ok) {
-        throw new Error('Could not load the improved Mythical Man-Month sample.');
+        throw new Error('Could not load the sample short story.');
       }
       const blob = await response.blob();
-      const file = new File([blob], 'The Mythical Man-Month.zip', { type: 'application/zip' });
-      await importFiles([file]);
+      const file = new File([blob], 'The Tell-Tale Heart.zip', { type: 'application/zip' });
+      const sourcePages = await extractMarkdownPages(file);
+      const totalPages = Math.max(1, sourcePages.length);
+      if (usesFirebaseSync()) {
+        await ensureCatalogSamplePages(TELL_TALE_SAMPLE_ID, sourcePages, {
+          title: 'The Tell-Tale Heart',
+        });
+      }
+      const now = Date.now();
+      const document: LibraryDocument = {
+        id: TELL_TALE_LIBRARY_DOC_ID,
+        name: 'The Tell-Tale Heart',
+        kind: 'markdown-zip',
+        sourceName: file.name,
+        totalPages,
+        currentPageIndex: 0,
+        activeBlockIndex: 0,
+        activeWordIndex: 0,
+        updatedAt: now,
+        addedAt: now,
+        isSample: true,
+        catalogSampleId: TELL_TALE_SAMPLE_ID,
+        hasProcessedContent: true,
+        processedFormat: 'markdown-pages',
+      };
+      // Keep a local copy for offline; content sync uses the shared catalog.
+      await saveSourceFile(document.id, file);
+      setDocuments((current) => normalizeLibraryDocuments([document, ...current]));
+      setActiveDocumentId(document.id);
+      setPageIndex(0);
+      setSavedBlockIndex(0);
+      setSavedWordIndex(0);
+      setReaderView('reading');
+      setImportOpen(false);
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Sample import failed.');
       setImportOpen(true);
+    } finally {
+      setImportBusy(false);
     }
-  }, [importFiles]);
+  }, []);
 
   const deleteDocument = useCallback(async (document: LibraryDocument) => {
-    if (!window.confirm(`Remove “${document.name}” from this device and the PageEcho server?`)) return;
+    const where = usesFirebaseSync() ? 'your account' : 'the PageEcho server';
+    if (!window.confirm(`Remove “${document.name}” from this device and ${where}?`)) return;
     if (activeDocumentId === document.id) {
       tts.stop();
       setActiveDocumentId(null);
@@ -767,9 +1396,9 @@ export default function AppV2() {
     ? calculateProgress(pageIndex, activeDocument.totalPages, displayWordIndex)
     : 0;
 
-  const isMarkdownBook = activeDocument?.kind === 'markdown-zip';
+  const isViewportBook = Boolean(bookStream);
   const pagePreparing = documentLoading
-    || (isMarkdownBook && !viewportReady)
+    || (isViewportBook && !viewportReady)
     || pageContent.pageIndex !== pageIndex;
 
   const renderTextPage = (compact = false) => (
@@ -777,7 +1406,7 @@ export default function AppV2() {
       className={[
         'pe-reading-page',
         compact ? 'is-compact' : '',
-        isMarkdownBook ? 'is-viewport-page' : '',
+        isViewportBook ? 'is-viewport-page' : '',
       ].filter(Boolean).join(' ')}
       style={{ '--reader-scale': preferences.fontScale } as React.CSSProperties}
     >
@@ -791,12 +1420,20 @@ export default function AppV2() {
             <span className="pe-spin" aria-hidden="true">
               <LoaderCircle size={25} />
             </span>
-            <strong>Preparing page {pageIndex + 1}</strong>
-            <span>Fitting the reading layer to your screen…</span>
+            <strong>
+              {documentLoading && activeDocument?.kind === 'pdf'
+                ? 'Extracting text from PDF…'
+                : `Preparing page ${pageIndex + 1}`}
+            </strong>
+            <span>
+              {documentLoading && activeDocument?.kind === 'pdf'
+                ? 'Building a continuous reading stream — large books take a few seconds.'
+                : 'Fitting the reading layer to your screen…'}
+            </span>
           </div>
         ) : pageContent.blocks.some((block) => block.trim()) || markdownBlocks.length ? (
           <ReaderWords
-            markdownBlocks={activeDocument?.kind === 'markdown-zip' ? markdownBlocks : undefined}
+            markdownBlocks={isViewportBook ? markdownBlocks : undefined}
             plainBlocks={pageContent.blocks}
             activeBlockIndex={displayBlockIndex}
             activeWordIndex={displayWordIndex}
@@ -806,8 +1443,8 @@ export default function AppV2() {
         ) : (
           <div className="pe-reader-state">
             <FileText size={26} />
-            <strong>No selectable text found</strong>
-            <span>Switch to the original PDF view for this page.</span>
+            <strong>No readable text on this page</strong>
+            <span>This page had no selectable text layer. Try the next page.</span>
           </div>
         )}
       </div>
@@ -818,12 +1455,84 @@ export default function AppV2() {
     </article>
   );
 
+  const resetLocalSessionLibrary = useCallback(() => {
+    // Guest sessions must not inherit the previous account's library/active book.
+    flushProgress();
+    tts.stop();
+    setDocuments([]);
+    setActiveDocumentId(null);
+    saveLibrary([]);
+    saveActiveDocumentId(null);
+    setBookStream(null);
+    setSource(null);
+    setPairedPdf(null);
+    setDocumentError(null);
+    setPageContent({ pageIndex: -1, blocks: [] });
+    setNextPageContent({ pageIndex: -1, blocks: [] });
+    setMarkdownBlocks([]);
+    setLibraryOpen(true);
+  }, [flushProgress, tts]);
+
+  const handleSignOut = useCallback(async () => {
+    resetLocalSessionLibrary();
+    setHydrateReady(false);
+    setDeviceSyncStatus('idle');
+    await signOutUser();
+  }, [resetLocalSessionLibrary]);
+
+  const handleGoogleSignIn = useCallback(async () => {
+    pendingLibraryMergeRef.current = documents;
+    setAuthBootError(null);
+    const result = await signInWithGoogle();
+    if (result.previousAnonymousUid) {
+      // Keep the guest library snapshot; bootstrap merge runs after auth settles.
+      pendingLibraryMergeRef.current = documents;
+      setHydrateReady(false);
+    }
+  }, [documents]);
+
+  const handleRetryGuest = useCallback(async () => {
+    setAuthBootError(null);
+    setAuthUser(undefined);
+    try {
+      const user = await ensureAnonymousSession();
+      if (!user) {
+        setAuthBootError('Guest session could not be created.');
+        setAuthUser(null);
+      }
+    } catch (error) {
+      setAuthBootError(error instanceof Error ? error.message : 'Anonymous sign-in failed.');
+      setAuthUser(null);
+    }
+  }, []);
+
+  const isAnonymousUser = Boolean(authUser?.isAnonymous);
+
+  if (firebaseMode && authUser === undefined) {
+    return <LoginGate busy />;
+  }
+  if (firebaseMode && !authUser) {
+    return (
+      <LoginGate
+        error={authBootError || 'Guest session unavailable.'}
+        onGoogleSignIn={handleGoogleSignIn}
+        onRetryGuest={handleRetryGuest}
+      />
+    );
+  }
+  // Don't mount the reader shell until account bootstrap finishes — otherwise a
+  // stale local active book can flash/crash before guest home is ready.
+  if (firebaseMode && !hydrateReady) {
+    return <LoginGate busy />;
+  }
+
   return (
     <div
       className={[
         'pe-app',
         focusActive ? 'is-focus-reading' : '',
         focusActive && chromeVisible ? 'is-chrome-visible' : '',
+        firebaseMode && isAnonymousUser ? 'has-guest-banner' : '',
       ].filter(Boolean).join(' ')}
       data-theme={preferences.appearance}
     >
@@ -832,34 +1541,84 @@ export default function AppV2() {
           <button className="pe-icon-button pe-mobile-only" onClick={() => setLibraryOpen((open) => !open)} aria-label="Toggle library">
             <Menu size={19} />
           </button>
-          <span className="pe-brand-mark"><BookOpen size={18} /></span>
-          <div>
-            <strong>PageEcho</strong>
-            <span>Read with every sense</span>
-          </div>
+          <button
+            type="button"
+            className="pe-brand-home"
+            onClick={() => {
+              tts.stop();
+              setActiveDocumentId(null);
+              setSource(null);
+              setPairedPdf(null);
+              setLibraryOpen(false);
+              setSettingsOpen(false);
+              setImportOpen(false);
+              setChaptersOpen(false);
+            }}
+            aria-label="Go to home"
+          >
+            <span className="pe-brand-mark"><BookOpen size={18} /></span>
+            <div>
+              <strong>PageEcho</strong>
+              <span>Read with every sense</span>
+            </div>
+          </button>
         </div>
         <div className="pe-topbar-actions">
-          <button className={`pe-sync-pill is-${deviceSyncStatus === 'synced' ? 'connected' : deviceSyncStatus}`} onClick={() => setSettingsOpen(true)}>
-            {deviceSyncStatus === 'synced' ? <Wifi size={14} /> : <WifiOff size={14} />}
-            <span>{deviceSyncStatus === 'synced' ? 'Devices synced' : deviceSyncStatus}</span>
-          </button>
-          <button
-            className="pe-icon-button"
-            onClick={() => setPreferences((current) => ({
-              ...current,
-              appearance: current.appearance === 'dark' ? 'light' : 'dark',
-            }))}
-            aria-label="Toggle color theme"
-          >
-            {preferences.appearance === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          {firebaseMode && authUser ? (
+            <button
+              type="button"
+              className={`pe-account-chip ${isAnonymousUser ? 'is-guest' : ''}`}
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Account and settings"
+            >
+              {authUser.photoURL && !isAnonymousUser ? (
+                <img className="pe-account-avatar" src={authUser.photoURL} alt="" referrerPolicy="no-referrer" />
+              ) : (
+                <span className="pe-account-initials" aria-hidden="true">
+                  {isAnonymousUser
+                    ? 'G'
+                    : (authUser.displayName || authUser.email || '?').slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              <span className="pe-account-label">
+                {isAnonymousUser
+                  ? 'Guest'
+                  : (authUser.displayName?.split(' ')[0]
+                    || authUser.email?.split('@')[0]
+                    || 'Signed in')}
+              </span>
+            </button>
+          ) : null}
           <button className="pe-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings size={18} />
           </button>
         </div>
       </header>
 
+      {firebaseMode && isAnonymousUser ? (
+        <div className="pe-guest-banner" role="status">
+          <p>
+            You’re browsing as a guest. Sign in with Google to keep your library across devices.
+          </p>
+          <button
+            type="button"
+            className="pe-button pe-button-secondary pe-guest-sign-in"
+            onClick={() => void handleGoogleSignIn()}
+          >
+            Sign in
+          </button>
+        </div>
+      ) : null}
+
       <div className="pe-shell">
+        {libraryOpen ? (
+          <button
+            type="button"
+            className="pe-library-backdrop"
+            aria-label="Close library"
+            onClick={() => setLibraryOpen(false)}
+          />
+        ) : null}
         <div className={`pe-library-wrap ${libraryOpen ? 'is-open' : ''}`}>
           <LibrarySidebar
             documents={documents}
@@ -872,64 +1631,41 @@ export default function AppV2() {
               setImportOpen(true);
             }}
             onDelete={deleteDocument}
+            storageHint={
+              firebaseMode
+                ? (isAnonymousUser ? 'Synced for this guest session' : 'Synced to your account')
+                : 'Stored on this device'
+            }
           />
         </div>
 
         <main className="pe-main">
+          {handoffError ? (
+            <div className="pe-handoff-banner" role="alert">
+              <p>{handoffError}</p>
+              <div className="pe-handoff-banner-actions">
+                {firebaseMode && isAnonymousUser ? (
+                  <button
+                    type="button"
+                    className="pe-button pe-button-secondary"
+                    onClick={() => void handleGoogleSignIn()}
+                  >
+                    Sign in
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="pe-icon-button"
+                  onClick={dismissPendingHandoff}
+                  aria-label="Dismiss handoff message"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+          ) : null}
           {activeDocument ? (
             <>
-              <section className="pe-reader-toolbar" onPointerDown={onChromePointerDown}>
-                <div className="pe-reader-title">
-                  <button className="pe-icon-button pe-mobile-only" onClick={() => setLibraryOpen(true)} aria-label="Open library">
-                    <Library size={18} />
-                  </button>
-                  <div>
-                    <span className="pe-eyebrow">
-                      {currentChapterTitle
-                        || (activeDocument.kind === 'pdf' ? 'PDF document' : 'Markdown edition')}
-                    </span>
-                    <h1>{activeDocument.name}</h1>
-                  </div>
-                </div>
-
-                <div className="pe-toolbar-center">
-                  <div className="pe-segmented">
-                    <button className={readerView === 'reading' ? 'is-active' : ''} onClick={() => setReaderView('reading')}>
-                      <FileText size={15} /> Reading
-                    </button>
-                    {activeDocument.kind === 'pdf' ? (
-                      <button className={readerView === 'original' ? 'is-active' : ''} onClick={() => setReaderView('original')}>
-                        <BookOpen size={15} /> Original
-                      </button>
-                    ) : (
-                      <button className={readerView === 'parallel' ? 'is-active' : ''} onClick={() => setReaderView('parallel')}>
-                        <Columns2 size={15} /> Parallel
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pe-toolbar-actions">
-                  {activeDocument.kind === 'markdown-zip' && (
-                    <label className="pe-button pe-button-secondary">
-                      {pairBusy ? <LoaderCircle className="pe-spin" size={16} /> : <Link2 size={16} />}
-                      <span>{pairedPdf ? 'Replace PDF' : 'Pair original PDF'}</span>
-                      <input
-                        className="pe-visually-hidden"
-                        type="file"
-                        accept=".pdf,application/pdf"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file) pairOriginalPdf(file);
-                          event.target.value = '';
-                        }}
-                      />
-                    </label>
-                  )}
-                  <button className="pe-icon-button" aria-label="More options"><MoreHorizontal size={18} /></button>
-                </div>
-              </section>
-
               <section className="pe-reader-nav" onPointerDown={onChromePointerDown}>
                 <div className="pe-page-controls">
                   <button className="pe-icon-button" onClick={() => changePage(pageIndex - 1, 'manual')} disabled={pageIndex === 0} aria-label="Previous page">
@@ -961,21 +1697,32 @@ export default function AppV2() {
                     <span>Contents</span>
                   </button>
                 )}
-                <div className="pe-zoom-controls">
+                <div className="pe-reader-nav-end">
+                  <div className="pe-zoom-controls">
+                    <button
+                      className="pe-icon-button"
+                      onClick={() => setPreferences((current) => ({ ...current, fontScale: Math.max(0.78, current.fontScale - 0.08) }))}
+                      aria-label="Decrease text size"
+                    >
+                      <ZoomOut size={17} />
+                    </button>
+                    <span>{Math.round(preferences.fontScale * 100)}%</span>
+                    <button
+                      className="pe-icon-button"
+                      onClick={() => setPreferences((current) => ({ ...current, fontScale: Math.min(1.45, current.fontScale + 0.08) }))}
+                      aria-label="Increase text size"
+                    >
+                      <ZoomIn size={17} />
+                    </button>
+                  </div>
                   <button
-                    className="pe-icon-button"
-                    onClick={() => setPreferences((current) => ({ ...current, fontScale: Math.max(0.78, current.fontScale - 0.08) }))}
-                    aria-label="Decrease text size"
+                    type="button"
+                    className="pe-icon-button pe-handoff-trigger"
+                    onClick={openHandoff}
+                    aria-label="Handoff to phone"
+                    title="Continue on phone"
                   >
-                    <ZoomOut size={17} />
-                  </button>
-                  <span>{Math.round(preferences.fontScale * 100)}%</span>
-                  <button
-                    className="pe-icon-button"
-                    onClick={() => setPreferences((current) => ({ ...current, fontScale: Math.min(1.45, current.fontScale + 0.08) }))}
-                    aria-label="Increase text size"
-                  >
-                    <ZoomIn size={17} />
+                    <Smartphone size={17} />
                   </button>
                 </div>
               </section>
@@ -1009,43 +1756,66 @@ export default function AppV2() {
                     <FileText size={32} />
                     <h2>This book could not be opened</h2>
                     <p>{documentError}</p>
-                    <button className="pe-button pe-button-primary" onClick={() => setImportOpen(true)}>
-                      <Upload size={16} /> Import another file
-                    </button>
+                    {isAnonymousUser ? (
+                      <p>
+                        Guest sessions only see books imported in this browser session (plus the shared
+                        sample). Sign in with Google to reopen books synced to your account.
+                      </p>
+                    ) : null}
+                    <div className="pe-fatal-actions">
+                      <button
+                        type="button"
+                        className="pe-button pe-button-secondary"
+                        onClick={() => {
+                          setActiveDocumentId(null);
+                          setDocumentError(null);
+                          setLibraryOpen(true);
+                        }}
+                      >
+                        Back to library
+                      </button>
+                      <button className="pe-button pe-button-primary" onClick={() => setImportOpen(true)}>
+                        <Upload size={16} /> Import another file
+                      </button>
+                    </div>
                   </div>
                 ) : readerView === 'original' && activeDocument.kind === 'pdf' && source ? (
                   <div className="pe-single-pdf">
-                    <BimodalPDFViewer
-                      pdfUrl={source}
-                      pageIndex={pageIndex}
-                      activeBlockIndex={displayBlockIndex}
-                      activeWordIndex={displayWordIndex}
-                      scale={Math.max(0.7, preferences.fontScale)}
-                      onTextExtracted={handlePdfTextExtracted}
-                      onNextPageTextExtracted={handleNextPdfTextExtracted}
-                      onWordTap={(blockIndex, wordIndex) => tts.play(blockIndex, wordIndex)}
-                      onPageLoadSuccess={handlePdfLoaded}
-                      isPlaying={tts.isPlaying}
-                      isPaused={tts.isPaused}
-                      className="pe-pdf-frame"
-                    />
+                    <Suspense fallback={<div className="pe-reader-state"><LoaderCircle className="pe-spin" size={25} /><strong>Loading PDF viewer…</strong></div>}>
+                      <BimodalPDFViewer
+                        pdfUrl={source}
+                        pageIndex={pageIndex}
+                        activeBlockIndex={displayBlockIndex}
+                        activeWordIndex={displayWordIndex}
+                        scale={Math.max(0.7, preferences.fontScale)}
+                        onTextExtracted={handlePdfTextExtracted}
+                        onNextPageTextExtracted={handleNextPdfTextExtracted}
+                        onWordTap={(blockIndex, wordIndex) => tts.play(blockIndex, wordIndex)}
+                        onPageLoadSuccess={handlePdfLoaded}
+                        isPlaying={tts.isPlaying}
+                        isPaused={tts.isPaused}
+                        className="pe-pdf-frame"
+                      />
+                    </Suspense>
                   </div>
                 ) : readerView === 'parallel' && activeDocument.kind === 'markdown-zip' ? (
                   pairedPdf ? (
                     <div className="pe-parallel">
                       <div className="pe-pane">{renderTextPage(true)}</div>
                       <div className="pe-pane pe-pane-pdf">
-                        <BimodalPDFViewer
-                          pdfUrl={pairedPdf}
-                          pageIndex={pageIndex}
-                          activeBlockIndex={null}
-                          activeWordIndex={null}
-                          scale={Math.max(0.65, preferences.fontScale * 0.78)}
-                          onTextExtracted={() => undefined}
-                          onWordTap={() => undefined}
-                          onPageLoadSuccess={handlePairedPdfLoaded}
-                          className="pe-pdf-frame"
-                        />
+                        <Suspense fallback={<div className="pe-reader-state"><LoaderCircle className="pe-spin" size={25} /><strong>Loading PDF viewer…</strong></div>}>
+                          <BimodalPDFViewer
+                            pdfUrl={pairedPdf}
+                            pageIndex={pageIndex}
+                            activeBlockIndex={null}
+                            activeWordIndex={null}
+                            scale={Math.max(0.65, preferences.fontScale * 0.78)}
+                            onTextExtracted={() => undefined}
+                            onWordTap={() => undefined}
+                            onPageLoadSuccess={handlePairedPdfLoaded}
+                            className="pe-pdf-frame"
+                          />
+                        </Suspense>
                       </div>
                     </div>
                   ) : (
@@ -1073,21 +1843,6 @@ export default function AppV2() {
                   </div>
                 )}
 
-                {activeDocument.kind === 'pdf' && readerView !== 'original' && source && (
-                  <div className="pe-extractor" aria-hidden="true">
-                    <BimodalPDFViewer
-                      pdfUrl={source}
-                      pageIndex={pageIndex}
-                      activeBlockIndex={null}
-                      activeWordIndex={null}
-                      scale={1}
-                      onTextExtracted={handlePdfTextExtracted}
-                      onNextPageTextExtracted={handleNextPdfTextExtracted}
-                      onWordTap={() => undefined}
-                      onPageLoadSuccess={handlePdfLoaded}
-                    />
-                  </div>
-                )}
               </section>
 
               <section
@@ -1186,39 +1941,78 @@ export default function AppV2() {
               </footer>
             </>
           ) : (
-            <section className="pe-welcome">
-              <div className="pe-welcome-copy">
-                <span className="pe-eyebrow">A calmer way to read and listen</span>
-                <h1>Your documents,<br />in perfect cadence.</h1>
-                <p>Import PDFs or page-by-page Markdown books. PageEcho keeps your place, speaks every passage, and follows each word without losing the page.</p>
-                <div className="pe-welcome-actions">
-                  <button className="pe-button pe-button-primary" onClick={() => setImportOpen(true)}>
-                    <Plus size={17} /> Add your first book
-                  </button>
-                  <button
-                    className="pe-button pe-button-secondary"
-                    onClick={() => { void importImprovedMmm(); }}
-                    disabled={importBusy}
-                  >
-                    {importBusy ? <LoaderCircle className="pe-spin" size={17} /> : <BookOpen size={17} />}
-                    Try Mythical Man-Month
-                  </button>
+            <div className="pe-home">
+              <section className="pe-welcome">
+                <div className="pe-welcome-copy">
+                  <span className="pe-eyebrow">A calmer way to read and listen</span>
+                  <h1>Your books,<br />in perfect cadence.</h1>
+                  <p>Import PDF books. PageEcho keeps your place, speaks every passage, and follows each word without losing the page.</p>
+                  <div className="pe-welcome-actions">
+                    <button className="pe-button pe-button-primary" onClick={() => setImportOpen(true)}>
+                      <Plus size={17} /> Add your first book
+                    </button>
+                    <button
+                      className="pe-button pe-button-secondary"
+                      onClick={() => { void importSampleStory(); }}
+                      disabled={importBusy}
+                    >
+                      {importBusy ? <LoaderCircle className="pe-spin" size={17} /> : <BookOpen size={17} />}
+                      Try a sample short story
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="pe-welcome-visual" aria-hidden="true">
-                <div className="pe-visual-card pe-visual-card-back">
-                  <span>04</span>
-                  <p>“The reader’s attention moves with the voice.”</p>
+                <div className="pe-welcome-visual" aria-hidden="true">
+                  <div className="pe-visual-card pe-visual-card-back">
+                    <span>04</span>
+                    <p>“The reader’s attention moves with the voice.”</p>
+                  </div>
+                  <div className="pe-visual-card pe-visual-card-front">
+                    <div className="pe-visual-line" />
+                    <div className="pe-visual-line is-short" />
+                    <p>Ideas become clearer when text and sound move together.</p>
+                    <div className="pe-visual-highlight">move together</div>
+                    <div className="pe-visual-wave"><i /><i /><i /><i /><i /><i /><i /></div>
+                  </div>
                 </div>
-                <div className="pe-visual-card pe-visual-card-front">
-                  <div className="pe-visual-line" />
-                  <div className="pe-visual-line is-short" />
-                  <p>Ideas become clearer when text and sound move together.</p>
-                  <div className="pe-visual-highlight">move together</div>
-                  <div className="pe-visual-wave"><i /><i /><i /><i /><i /><i /><i /></div>
+              </section>
+              <footer className="pe-home-footer">
+                <p className="pe-home-footer-note">
+                  PageEcho is free and open source. If it helps you read, a small sponsorship keeps the lights on.
+                </p>
+                <div className="pe-home-footer-row">
+                  <div className="pe-home-footer-cta">
+                    <a
+                      className="pe-icon-button"
+                      href={GITHUB_REPO_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="PageEcho on GitHub"
+                      title="GitHub"
+                    >
+                      <GitHubMark size={17} />
+                    </a>
+                    <a
+                      className="pe-sponsor-link"
+                      href={GITHUB_SPONSORS_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Heart size={14} />
+                      Sponsor
+                    </a>
+                  </div>
+                  <nav className="pe-home-footer-legal" aria-label="Legal">
+                    <button type="button" className="pe-text-link" onClick={() => openLegalDoc('terms')}>
+                      Terms
+                    </button>
+                    <span aria-hidden="true">·</span>
+                    <button type="button" className="pe-text-link" onClick={() => openLegalDoc('privacy')}>
+                      Privacy
+                    </button>
+                  </nav>
                 </div>
-              </div>
-            </section>
+              </footer>
+            </div>
           )}
         </main>
       </div>
@@ -1229,7 +2023,7 @@ export default function AppV2() {
         error={importError}
         onClose={() => setImportOpen(false)}
         onImport={importFiles}
-        onImportSample={() => { void importImprovedMmm(); }}
+        onImportSample={() => { void importSampleStory(); }}
       />
       <ChapterListPanel
         open={chaptersOpen}
@@ -1249,10 +2043,42 @@ export default function AppV2() {
         inworldServerStatus={inworldServerStatus}
         fishAudioServerStatus={fishAudioServerStatus}
         deviceSyncStatus={deviceSyncStatus}
+        accountLabel={
+          isAnonymousUser
+            ? 'Guest (temporary)'
+            : (authUser?.email ?? authUser?.displayName ?? null)
+        }
+        isAnonymous={isAnonymousUser}
+        cloudSync={firebaseMode}
+        onSignIn={firebaseMode && isAnonymousUser ? handleGoogleSignIn : undefined}
+        onSignOut={firebaseMode && !isAnonymousUser ? handleSignOut : undefined}
         onChange={setPreferences}
         onSaveSecrets={handleSaveSecrets}
         onClose={() => setSettingsOpen(false)}
       />
+      <HandoffDialog
+        open={handoffOpen}
+        url={handoffUrl}
+        bookTitle={activeDocument?.name || 'this book'}
+        pageLabel={`page ${pageIndex + 1}`}
+        requiresSignIn={Boolean(firebaseMode && isAnonymousUser)}
+        onSignIn={firebaseMode && isAnonymousUser ? () => { void handleGoogleSignIn(); } : undefined}
+        onClose={() => setHandoffOpen(false)}
+      />
+      <HandoffResumeDialog
+        open={Boolean(handoffResume)}
+        target={handoffResume || { documentId: '', pageIndex: 0, blockIndex: 0, wordIndex: 0 }}
+        bookTitle={
+          (handoffResume && documents.find((document) => document.id === handoffResume.documentId)?.name)
+          || 'your book'
+        }
+        onContinue={() => {
+          if (handoffResume) applyHandoffTarget(handoffResume);
+        }}
+        onDismiss={dismissPendingHandoff}
+      />
+      <LegalDialog docId={legalDoc} onClose={closeLegalDoc} />
+      <ConsentBanner />
     </div>
   );
 }

@@ -10,6 +10,7 @@ interface LibrarySidebarProps {
   onSelect: (document: LibraryDocument) => void;
   onImport: () => void;
   onDelete: (document: LibraryDocument) => void;
+  storageHint?: string;
 }
 
 export function LibrarySidebar({
@@ -20,10 +21,11 @@ export function LibrarySidebar({
   onSelect,
   onImport,
   onDelete,
+  storageHint = 'Stored on this device',
 }: LibrarySidebarProps) {
   const filteredDocuments = documents
-    .filter((document) => document.name.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
+    .filter((document) => (document.name || '').toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
   return (
     <aside className="pe-library">
@@ -95,7 +97,7 @@ export function LibrarySidebar({
           <div className="pe-library-empty">
             <BookOpen size={28} />
             <strong>{query ? 'No matching books' : 'Your shelf is ready'}</strong>
-            <p>{query ? 'Try another title.' : 'Add a PDF or a ZIP of Markdown pages to begin.'}</p>
+            <p>{query ? 'Try another title.' : 'Add a PDF to begin.'}</p>
             {!query && <button className="pe-text-button" onClick={onImport}>Import your first book</button>}
           </div>
         )}
@@ -103,7 +105,7 @@ export function LibrarySidebar({
 
       <div className="pe-library-footer">
         <span>{documents.length} {documents.length === 1 ? 'title' : 'titles'}</span>
-        <span>Stored on this device</span>
+        <span>{storageHint}</span>
       </div>
     </aside>
   );

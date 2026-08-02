@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // --- PageEcho (namespaced product) ---
+    match /pageecho/{uid} {
+      // Shared catalog lives at pageecho/catalog — not a user uid.
+      allow read, write: if uid != 'catalog' && isOwner(uid);
+
+      match /secrets/{docId} {
+        allow read, write: if uid != 'catalog' && isOwner(uid);
+      }
+
+      match /library/{documentId} {
+        allow read, write: if uid != 'catalog' && isOwner(uid);
+
+        match /pages/{pageKey} {
+          allow read, write: if uid != 'catalog' && isOwner(uid);
+        }
+      }
+    }
+
+    // Shared samples + baked audio (user-independent content).
+    match /pageecho/catalog/{document=**} {
+      allow read: if true;
+      // Any signed-in session (including anonymous) may seed/warm the shared cache.
+      allow create, update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    // --- Legacy Dion Labs site (same project; do not break on deploy) ---
+    // Observed clients: blog Signals + main landing (unauthenticated).
+    // Tighten later; these match current public write patterns.
+
+    match /blog_stats/{slug} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    match /feature_stats/{featureId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if false;
+    }
+
+    // Leads contain emails — create/update only, no client list/get of others.
+    match /leads/{leadId} {
+      allow create: if true;
+      allow update: if true;
+      allow read, delete: if false;
+
+      match /submissions/{submissionId} {
+        allow create: if true;
+        allow read, update, delete: if false;
+      }
+    }
+  }
+}

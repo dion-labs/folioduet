@@ -53,8 +53,8 @@ export function ChapterListPanel({
             <ListTree size={22} />
             <strong>No chapters detected yet</strong>
             <span>
-              This edition doesn’t expose clear headings. For Mythical Man-Month, delete this book and
-              re-import the improved sample (“Try Mythical Man-Month”) — the old *_Pages.zip dump has no chapter markers.
+              This edition doesn’t expose clear headings. Try the sample short story, or re-import a
+              book that includes chapter headings.
             </span>
           </div>
         ) : (

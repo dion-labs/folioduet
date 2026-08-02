@@ -1,7 +1,13 @@
 {
-  "name": "bimodal-reader",
+  "name": "pageecho",
   "private": true,
   "version": "0.1.0",
+  "description": "A calmer PDF reader with word-aligned listening and private cloud sync",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dion-labs/pageecho.git"
+  },
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.5"
@@ -20,12 +26,14 @@
     "jszip": "^3.10.1",
     "lucide-react": "^1.24.0",
     "pdfjs-dist": "^4.4.168",
+    "qrcode": "^1.5.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",

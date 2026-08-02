@@ -15,7 +15,7 @@ const defaultPreferences = Object.freeze({
   volume: 1,
   inworldEnabled: false,
   inworldVoiceId: 'Ashley',
-  fishAudioEnabled: false,
+  fishAudioEnabled: true,
   fishAudioVoiceId: '933563129e564b19a115bedd57b7406a',
   updatedAt: 0,
 });
@@ -40,7 +40,7 @@ function sanitizePreferences(input) {
       typeof source.inworldVoiceId === 'string' && source.inworldVoiceId.trim()
         ? source.inworldVoiceId.trim()
         : defaultPreferences.inworldVoiceId,
-    fishAudioEnabled: source.fishAudioEnabled === true,
+    fishAudioEnabled: source.fishAudioEnabled !== false,
     fishAudioVoiceId:
       typeof source.fishAudioVoiceId === 'string' && source.fishAudioVoiceId.trim()
         ? source.fishAudioVoiceId.trim()

@@ -1,4 +1,4 @@
-import { FileArchive, FileText, Upload, X } from 'lucide-react';
+import { FileText, Upload, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 interface ImportDialogProps {
@@ -28,7 +28,7 @@ export function ImportDialog({ open, busy, error, onClose, onImport, onImportSam
         <div className="pe-dialog-header">
           <div>
             <span className="pe-eyebrow">Add to library</span>
-            <h2 id="import-title">Import books</h2>
+            <h2 id="import-title">Import PDF books</h2>
           </div>
           <button className="pe-icon-button" onClick={onClose} disabled={busy} aria-label="Close">
             <X size={19} />
@@ -52,21 +52,26 @@ export function ImportDialog({ open, busy, error, onClose, onImport, onImportSam
           disabled={busy}
         >
           <span className="pe-dropzone-icon"><Upload size={22} /></span>
-          <strong>{busy ? 'Preparing your books…' : 'Drop PDF or Markdown ZIP files here'}</strong>
+          <strong>{busy ? 'Preparing your books…' : 'Drop PDF files here'}</strong>
           <span>or choose files from your device</span>
         </button>
         <input
           ref={inputRef}
           className="pe-visually-hidden"
           type="file"
-          accept=".pdf,.zip,application/pdf,application/zip"
+          accept=".pdf,application/pdf"
           multiple
           onChange={(event) => acceptFiles(event.target.files)}
         />
 
         <div className="pe-import-types">
-          <div><FileText size={18} /><span><strong>PDF</strong>Original layout with extracted text</span></div>
-          <div><FileArchive size={18} /><span><strong>Markdown ZIP</strong>One numbered .md file per page</span></div>
+          <div>
+            <FileText size={18} />
+            <span>
+              <strong>PDF</strong>
+              Original layout with text extracted for listening
+            </span>
+          </div>
         </div>
 
         {onImportSample && (
@@ -77,14 +82,15 @@ export function ImportDialog({ open, busy, error, onClose, onImport, onImportSam
             onClick={onImportSample}
             disabled={busy}
           >
-            Try improved Mythical Man-Month sample
+            Try a sample short story
           </button>
         )}
 
         {error && <p className="pe-form-error" role="alert">{error}</p>}
-        <p className="pe-dialog-note">Files stay in your browser’s local database. You can pair an original PDF after importing a Markdown book.</p>
+        <p className="pe-dialog-note">
+          Files stay on this device. Processed reading text can sync privately with your PageEcho account.
+        </p>
       </section>
     </div>
   );
 }
-

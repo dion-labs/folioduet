@@ -1,4 +1,4 @@
-import { Moon, ShieldCheck, Sun, X } from 'lucide-react';
+import { ChevronDown, Moon, Sun, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { DeviceSyncStatus, ReaderPreferences, TtsServerStatus } from '../types';
 
@@ -8,6 +8,11 @@ interface SettingsPanelProps {
   inworldServerStatus: TtsServerStatus;
   fishAudioServerStatus: TtsServerStatus;
   deviceSyncStatus: DeviceSyncStatus;
+  accountLabel?: string | null;
+  isAnonymous?: boolean;
+  cloudSync?: boolean;
+  onSignIn?: () => Promise<void>;
+  onSignOut?: () => Promise<void>;
   onChange: (preferences: ReaderPreferences) => void;
   onSaveSecrets: (input: {
     inworldApiKey?: string;
@@ -24,6 +29,11 @@ export function SettingsPanel({
   inworldServerStatus,
   fishAudioServerStatus,
   deviceSyncStatus,
+  accountLabel = null,
+  isAnonymous = false,
+  cloudSync = false,
+  onSignIn,
+  onSignOut,
   onChange,
   onSaveSecrets,
   onClose,
@@ -32,6 +42,7 @@ export function SettingsPanel({
   const [fishDraft, setFishDraft] = useState('');
   const [secretBusy, setSecretBusy] = useState(false);
   const [secretMessage, setSecretMessage] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -74,6 +85,10 @@ export function SettingsPanel({
     return `${diffDays} days remaining`;
   };
 
+  const vaultLabel = cloudSync ? 'your account' : 'the server';
+  const fishConfigured = fishAudioServerStatus === 'ready';
+  const inworldConfigured = inworldServerStatus === 'ready';
+
   const saveCredential = async (provider: 'inworld' | 'fish-audio') => {
     setSecretBusy(true);
     setSecretMessage(null);
@@ -81,19 +96,19 @@ export function SettingsPanel({
       if (provider === 'inworld') {
         if (!inworldDraft.trim()) {
           await onSaveSecrets({ clearInworld: true });
-          setSecretMessage('Inworld key cleared on the server.');
+          setSecretMessage(`Inworld key cleared from ${vaultLabel}.`);
         } else {
           await onSaveSecrets({ inworldApiKey: inworldDraft.trim() });
-          setSecretMessage('Inworld key saved on the server.');
+          setSecretMessage(`Inworld key saved to ${vaultLabel}.`);
         }
         setInworldDraft('');
       } else if (!fishDraft.trim()) {
         await onSaveSecrets({ clearFishAudio: true });
-        setSecretMessage('Fish Audio key cleared on the server.');
+        setSecretMessage(`Fish Audio key cleared from ${vaultLabel}.`);
         setFishDraft('');
       } else {
         await onSaveSecrets({ fishAudioApiKey: fishDraft.trim() });
-        setSecretMessage('Fish Audio key saved on the server.');
+        setSecretMessage(`Fish Audio key saved to ${vaultLabel}.`);
         setFishDraft('');
       }
     } catch (error) {
@@ -103,8 +118,17 @@ export function SettingsPanel({
     }
   };
 
-  const syncLabel =
-    deviceSyncStatus === 'synced'
+  const syncLabel = cloudSync
+    ? deviceSyncStatus === 'synced'
+      ? 'Library and preferences sync privately under your PageEcho account.'
+      : deviceSyncStatus === 'syncing'
+        ? 'Syncing your PageEcho account…'
+        : deviceSyncStatus === 'offline'
+          ? 'Cloud sync unavailable — changes stay on this device until you reconnect.'
+          : deviceSyncStatus === 'error'
+            ? 'Last sync failed — retry by changing a setting or reloading.'
+            : 'Waiting to sync your PageEcho account.'
+    : deviceSyncStatus === 'synced'
       ? 'Library & preferences sync with this PageEcho server (Tailscale-ready).'
       : deviceSyncStatus === 'syncing'
         ? 'Syncing with the PageEcho server…'
@@ -150,144 +174,6 @@ export function SettingsPanel({
         <section className="pe-settings-section">
           <div className="pe-setting-heading">
             <div>
-              <h3>Persistent neural voice</h3>
-              <p>Word timestamps and audio are cached by the PageEcho server.</p>
-            </div>
-            <label className="pe-switch">
-              <input
-                type="checkbox"
-                checked={preferences.inworldEnabled}
-                onChange={(event) => handleInworldChange(event.target.checked)}
-              />
-              <span />
-            </label>
-          </div>
-          <label className="pe-field">
-            <span>Voice ID</span>
-            <input
-              value={preferences.inworldVoiceId}
-              onChange={(event) => update('inworldVoiceId', event.target.value)}
-              placeholder="Ashley"
-            />
-          </label>
-          <label className="pe-field">
-            <span>Inworld API Key / Signature</span>
-            <input
-              type="password"
-              value={inworldDraft}
-              onChange={(event) => setInworldDraft(event.target.value)}
-              placeholder={
-                inworldServerStatus === 'ready'
-                  ? 'Configured on server — enter a new key to replace'
-                  : 'Basic YXBpLWtleS1zaWduYXR1cmU...'
-              }
-              autoComplete="off"
-            />
-          </label>
-          <button
-            type="button"
-            className="pe-button pe-button-secondary"
-            disabled={secretBusy}
-            onClick={() => void saveCredential('inworld')}
-          >
-            {inworldDraft.trim() ? 'Save Inworld key to server' : 'Clear Inworld key on server'}
-          </button>
-          <div className="pe-security-note">
-            <ShieldCheck size={17} />
-            <p>
-              {inworldServerStatus === 'ready'
-                ? 'Key is stored on the PageEcho server only. Other devices never download it — they just see that it is configured.'
-                : inworldServerStatus === 'missing-credential'
-                  ? 'Cache server is online. Save a key here (or set INWORLD_API_KEY in .env.local) to synthesize missing chunks.'
-                  : inworldServerStatus === 'offline'
-                    ? 'Cache server is offline. Start PageEcho with npm run dev.'
-                    : 'Checking the local cache server…'}
-            </p>
-          </div>
-        </section>
-
-        <section className="pe-settings-section">
-          <div className="pe-setting-heading">
-            <div>
-              <h3>Fish Audio S2.1 Pro</h3>
-              <p>High-quality neural voice with word-level timestamps.</p>
-            </div>
-            <label className="pe-switch">
-              <input
-                type="checkbox"
-                checked={preferences.fishAudioEnabled}
-                onChange={(event) => handleFishAudioChange(event.target.checked)}
-              />
-              <span />
-            </label>
-          </div>
-          <label className="pe-field">
-            <span>Voice ID / Reference ID</span>
-            <input
-              value={preferences.fishAudioVoiceId}
-              onChange={(event) => update('fishAudioVoiceId', event.target.value)}
-              placeholder="933563129e564b19a115bedd57b7406a"
-            />
-          </label>
-          <label className="pe-field">
-            <span>Fish Audio API Key</span>
-            <input
-              type="password"
-              value={fishDraft}
-              onChange={(event) => setFishDraft(event.target.value)}
-              placeholder={
-                fishAudioServerStatus === 'ready'
-                  ? 'Configured on server — enter a new key to replace'
-                  : 'Your fish audio API key...'
-              }
-              autoComplete="off"
-            />
-          </label>
-          <button
-            type="button"
-            className="pe-button pe-button-secondary"
-            disabled={secretBusy}
-            onClick={() => void saveCredential('fish-audio')}
-          >
-            {fishDraft.trim() ? 'Save Fish Audio key to server' : 'Clear Fish Audio key on server'}
-          </button>
-          {preferences.fishAudioEnabled && (
-            <div className="pe-cooldown-note" style={{
-              marginTop: '8px',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              backgroundColor: 'rgba(234, 179, 8, 0.1)',
-              border: '1px solid rgba(234, 179, 8, 0.2)',
-              fontSize: '12px',
-              color: '#eab308',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}>
-              <span>🐝</span>
-              <span>
-                <strong>Free S2.1 Pro Active:</strong> {getRemainingFreeTime()} (expires Sept 1, 2026)
-              </span>
-            </div>
-          )}
-          <div className="pe-security-note">
-            <ShieldCheck size={17} />
-            <p>
-              {fishAudioServerStatus === 'ready'
-                ? 'Key is stored on the PageEcho server only. Your phone can use TTS without ever seeing the secret.'
-                : fishAudioServerStatus === 'missing-credential'
-                  ? 'Cache server is online. Save a key here (or set FISH_AUDIO_API_KEY in .env.local) to synthesize missing chunks.'
-                  : fishAudioServerStatus === 'offline'
-                    ? 'Cache server is offline. Start PageEcho with npm run dev.'
-                    : 'Checking the local cache server…'}
-            </p>
-          </div>
-          {secretMessage && <p className="pe-inline-status is-connected">{secretMessage}</p>}
-        </section>
-
-        <section className="pe-settings-section">
-          <div className="pe-setting-heading">
-            <div>
               <h3>Device sync</h3>
               <p>{syncLabel}</p>
             </div>
@@ -295,6 +181,176 @@ export function SettingsPanel({
           <p className={`pe-inline-status is-${deviceSyncStatus === 'synced' ? 'connected' : deviceSyncStatus}`}>
             Status · {deviceSyncStatus}
           </p>
+          {cloudSync && accountLabel ? (
+            <p className="pe-settings-account">
+              {isAnonymous ? accountLabel : `Signed in as ${accountLabel}`}
+            </p>
+          ) : null}
+          {cloudSync && isAnonymous ? (
+            <p className="pe-settings-guest-note">
+              Without Google sign-in, clearing site data or switching browsers can lose synced books.
+              The shared sample story stays available to everyone.
+            </p>
+          ) : null}
+          {cloudSync && onSignIn ? (
+            <button
+              type="button"
+              className="pe-button"
+              style={{ marginTop: 12 }}
+              onClick={() => void onSignIn()}
+            >
+              Continue with Google
+            </button>
+          ) : null}
+          {cloudSync && onSignOut ? (
+            <button
+              type="button"
+              className="pe-button pe-button-secondary"
+              style={{ marginTop: 12 }}
+              onClick={() => void onSignOut()}
+            >
+              Sign out
+            </button>
+          ) : null}
+        </section>
+
+        <section className="pe-settings-section">
+          <button
+            type="button"
+            className={`pe-advanced-toggle ${advancedOpen ? 'is-open' : ''}`}
+            onClick={() => setAdvancedOpen((value) => !value)}
+            aria-expanded={advancedOpen}
+          >
+            <div>
+              <h3>Advanced voice</h3>
+              <p>Fish Audio (default) and optional Inworld BYOK.</p>
+            </div>
+            <ChevronDown size={18} aria-hidden="true" />
+          </button>
+
+          {advancedOpen && (
+            <div className="pe-advanced-body">
+              <div className="pe-advanced-block">
+                <div className="pe-setting-heading">
+                  <div>
+                    <h3>Fish Audio S2.1 Pro</h3>
+                    <p>Default neural voice with word-level timestamps.</p>
+                  </div>
+                  <label className="pe-switch">
+                    <input
+                      type="checkbox"
+                      checked={preferences.fishAudioEnabled}
+                      onChange={(event) => handleFishAudioChange(event.target.checked)}
+                    />
+                    <span />
+                  </label>
+                </div>
+                <label className="pe-field">
+                  <span>Voice ID / Reference ID</span>
+                  <input
+                    value={preferences.fishAudioVoiceId}
+                    onChange={(event) => update('fishAudioVoiceId', event.target.value)}
+                    placeholder="933563129e564b19a115bedd57b7406a"
+                  />
+                </label>
+                <label className="pe-field">
+                  <span>Fish Audio API Key</span>
+                  <input
+                    type="password"
+                    value={fishDraft}
+                    onChange={(event) => setFishDraft(event.target.value)}
+                    placeholder={fishConfigured ? '••••••••••••••••' : 'Your fish audio API key…'}
+                    autoComplete="off"
+                  />
+                </label>
+                {fishDraft.trim() ? (
+                  <button
+                    type="button"
+                    className="pe-button pe-button-secondary pe-secret-action"
+                    disabled={secretBusy}
+                    onClick={() => void saveCredential('fish-audio')}
+                  >
+                    Save Fish Audio key
+                  </button>
+                ) : null}
+                {fishConfigured && !fishDraft.trim() ? (
+                  <button
+                    type="button"
+                    className="pe-button pe-button-secondary pe-secret-action"
+                    disabled={secretBusy}
+                    onClick={() => void saveCredential('fish-audio')}
+                  >
+                    Clear Fish Audio key
+                  </button>
+                ) : null}
+                {preferences.fishAudioEnabled && (
+                  <div className="pe-cooldown-note">
+                    <span>🐝</span>
+                    <span>
+                      <strong>Free S2.1 Pro active:</strong> {getRemainingFreeTime()} (expires Sept 1, 2026)
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="pe-advanced-block">
+                <div className="pe-setting-heading">
+                  <div>
+                    <h3>Inworld neural voice</h3>
+                    <p>Optional alternative TTS. Requires your own Inworld key.</p>
+                  </div>
+                  <label className="pe-switch">
+                    <input
+                      type="checkbox"
+                      checked={preferences.inworldEnabled}
+                      onChange={(event) => handleInworldChange(event.target.checked)}
+                    />
+                    <span />
+                  </label>
+                </div>
+                <label className="pe-field">
+                  <span>Voice ID</span>
+                  <input
+                    value={preferences.inworldVoiceId}
+                    onChange={(event) => update('inworldVoiceId', event.target.value)}
+                    placeholder="Ashley"
+                  />
+                </label>
+                <label className="pe-field">
+                  <span>Inworld API Key / Signature</span>
+                  <input
+                    type="password"
+                    value={inworldDraft}
+                    onChange={(event) => setInworldDraft(event.target.value)}
+                    placeholder={inworldConfigured ? '••••••••••••••••' : 'Basic YXBpLWtleS1zaWduYXR1cmU…'}
+                    autoComplete="off"
+                  />
+                </label>
+                {inworldDraft.trim() ? (
+                  <button
+                    type="button"
+                    className="pe-button pe-button-secondary pe-secret-action"
+                    disabled={secretBusy}
+                    onClick={() => void saveCredential('inworld')}
+                  >
+                    Save Inworld key
+                  </button>
+                ) : null}
+                {inworldConfigured && !inworldDraft.trim() ? (
+                  <button
+                    type="button"
+                    className="pe-button pe-button-secondary pe-secret-action"
+                    disabled={secretBusy}
+                    onClick={() => void saveCredential('inworld')}
+                  >
+                    Clear Inworld key
+                  </button>
+                ) : null}
+              </div>
+
+              {secretMessage && <p className="pe-inline-status is-connected">{secretMessage}</p>}
+            </div>
+          )}
         </section>
       </aside>
     </div>

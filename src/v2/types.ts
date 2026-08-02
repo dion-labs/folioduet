@@ -17,6 +17,14 @@ export interface LibraryDocument {
   pairedPdfPages?: number;
   isSample?: boolean;
   url?: string;
+  /**
+   * When set, markdown/audio content is loaded from the shared catalog
+   * (`pageecho/catalog/samples/{id}`) instead of per-user pages.
+   */
+  catalogSampleId?: string;
+  /** True when processed markdown pages exist in cloud sync (Firebase). */
+  hasProcessedContent?: boolean;
+  processedFormat?: 'markdown-pages' | null;
 }
 
 export interface PageContent {

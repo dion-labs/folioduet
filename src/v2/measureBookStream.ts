@@ -1,4 +1,5 @@
 import type { BookStreamBlock } from './bookStream';
+import { yieldToMain } from './yieldToMain';
 
 function tagForType(type: BookStreamBlock['type']): string {
   if (type === 'li') return 'li';
@@ -60,6 +61,10 @@ export type BookStreamMeasurer = {
   measureBlock: (block: BookStreamBlock) => number;
   measurePage: (page: BookStreamBlock[]) => number;
   measureHeights: (stream: BookStreamBlock[]) => number[];
+  measureHeightsAsync: (
+    stream: BookStreamBlock[],
+    options?: { chunkSize?: number; signal?: { cancelled: boolean } },
+  ) => Promise<number[]>;
   dispose: () => void;
 };
 
@@ -77,6 +82,7 @@ export function createBookStreamMeasurer(options: {
       measureBlock: guess,
       measurePage: (page) => page.reduce((sum, block) => sum + guess(block), 0),
       measureHeights: (stream) => stream.map(guess),
+      measureHeightsAsync: async (stream) => stream.map(guess),
       dispose: () => undefined,
     };
   }
@@ -99,10 +105,28 @@ export function createBookStreamMeasurer(options: {
 
   const measureHeights = (stream: BookStreamBlock[]) => stream.map(measureBlock);
 
+  const measureHeightsAsync = async (
+    stream: BookStreamBlock[],
+    options: { chunkSize?: number; signal?: { cancelled: boolean } } = {},
+  ) => {
+    // Small chunks: each measureBlock forces layout; keep the UI interactive.
+    const chunkSize = Math.max(4, options.chunkSize ?? 8);
+    const heights: number[] = new Array(stream.length);
+    for (let index = 0; index < stream.length; index += 1) {
+      if (options.signal?.cancelled) throw new DOMException('Aborted', 'AbortError');
+      heights[index] = measureBlock(stream[index]);
+      if (index > 0 && index % chunkSize === 0) {
+        await yieldToMain();
+      }
+    }
+    return heights;
+  };
+
   return {
     measureBlock,
     measurePage,
     measureHeights,
+    measureHeightsAsync,
     dispose: () => {
       host.remove();
     },

@@ -1,103 +1,74 @@
 # PageEcho
 
-PageEcho is a bimodal PDF/Markdown reader with word-aligned neural speech,
-reading progress, paired PDF views, and server-backed device sync (Tailscale-friendly).
-The frontend is served at `/`.
+A calmer way to **read and listen**. Import PDF (or Markdown zip) books, keep your place, and follow every word with neural speech — privately synced across your devices.
 
-## Local development
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-dion--labs-ea4aaa.svg)](https://github.com/sponsors/dion-labs)
 
-Requirements:
+## Features
 
-- Node.js 22.5 or newer (the server uses Node's built-in SQLite module).
-- An Inworld Basic credential for new TTS synthesis.
+- Word-aligned playback (Fish Audio sponsor key or BYOK; Inworld BYOK)
+- Google sign-in + per-user library isolation (Firebase Auth + Firestore)
+- Guest mode for try-before-login
+- Progress sync; **original PDFs stay on the import device**
+- Phone handoff (copy link + QR)
+- PWA-friendly shell
+- Open source under Dion Labs ([sponsor](https://github.com/sponsors/dion-labs))
 
-Create a local server configuration:
+## Quick start (local)
+
+Requirements: **Node.js 22.5+**
 
 ```bash
 cp .env.example .env.local
+# Fill Firebase web config (see AGENTS.md) — or leave PROJECT_ID empty for Node-only sync
+npm install
+npm run dev:client          # Firebase / static SPA path
+# or: npm run dev           # Vite + optional local Node TTS/sync proxy
 ```
 
-Set `INWORLD_API_KEY` in `.env.local`, then start the API/cache server and Vite
-together:
+Open http://localhost:5173/
 
 ```bash
-npm run dev
+npm test
+npm run build               # static site → dist/ (Cloudflare Pages)
 ```
 
-Open <http://localhost:5173/>. The Inworld credential is read only by the
-server; the frontend no longer reads or writes a browser-stored credential.
-
-## Persistent TTS cache
-
-The frontend retains a bounded look-ahead—it does not synthesize an entire
-book. Each requested chunk is resolved by `POST /api/tts/synthesize`:
-
-1. A deterministic key is derived from provider, model, voice, exact text,
-   timestamp mode, encoding, and sample rate.
-2. SQLite is checked for an existing entry.
-3. On a hit, the MP3 and timestamp JSON are read from disk.
-4. On a miss, the server calls Inworld once, writes both files atomically, and
-   records their relative paths in SQLite.
-
-Default data layout:
+## Architecture (ship shape)
 
 ```text
-data/
-├── database/
-│   └── pageecho.sqlite
-└── tts/
-    └── <voice>/
-        └── <hash-prefix>/
-            ├── <cache-key>.mp3
-            └── <cache-key>.timestamps.json
+Cloudflare Pages (static SPA)
+        │
+        ▼
+Firebase Auth (Google) + Firestore
+  pageecho/{uid}/library|pages|secrets|prefs
+        │
+Browser
+  ├── IndexedDB originals (import device only)
+  ├── Fish / Inworld TTS from the client
+  └── Analytics only after consent
 ```
 
-Useful endpoints:
+The optional Node server (`npm run dev` / `npm start`) is a **legacy/local** TTS cache + sync helper. Production open-source hosting is the static client + Firebase.
 
-- `GET /api/health` — server and provider configuration status.
-- `GET /api/tts/cache/stats` — entry count, audio bytes, cache hits, and latest
-  access time.
-- `POST /api/tts/synthesize` — cached on-demand synthesis.
-- `GET /api/sync/bootstrap` — preferences, library metadata, active doc, secret status.
-- `PUT /api/sync/preferences` / `PUT /api/sync/library` — cross-device reader state.
-- `PUT /api/sync/secrets` — write-only API keys (never returned to clients).
-- `PUT/GET /api/sync/documents/:id/{source,paired-pdf}` — imported file blobs.
+## Configuration
 
-Cached audio remains playable when provider keys are unavailable; only a
-cache miss requires the credential.
+| Variable | Where | Purpose |
+|----------|--------|---------|
+| `VITE_FIREBASE_*` | Build / `.env.local` | Firebase web app (public client config) |
+| `VITE_FISH_AUDIO_SPONSOR_KEY` | Build secret | Shared Fish key while free (optional) |
+| `VITE_GITHUB_REPO_URL` | Build | Footer GitHub link |
+| `VITE_GITHUB_SPONSORS_URL` | Build | Footer Sponsor link |
+| `INWORLD_API_KEY` | Server `.env.local` only | Local Node TTS proxy — never ship in the client |
 
-## Device sync + PWA
+See [`.env.example`](./.env.example), [`AGENTS.md`](./AGENTS.md) (fresh Firebase setup), and [`SECURITY.md`](./SECURITY.md).
 
-Preferences, library metadata, reading progress fields, and imported source
-files sync through the PageEcho server SQLite/data directory. API keys are
-stored only on the server; clients see configured/not-configured and can
-replace keys without ever reading them back.
+## Deploy
 
-The app ships a web app manifest + lightweight service worker so you can
-“Add to Home Screen” / install it on a phone. Full Chrome install prompts
-usually need HTTPS (Tailscale Serve or similar); Safari home-screen install
-still works over your Tailscale HTTP URL.
+GitHub Actions deploys **`main` only** to Cloudflare Pages (see [`.github/workflows/deploy-pages.yml`](./.github/workflows/deploy-pages.yml)). PRs do not deploy.
 
-## Production
+You still need to create the Cloudflare Pages project + DNS subdomain once, and add the Actions secrets/vars listed in the workflow file.
 
-Build and run the same server:
+## License
 
-```bash
-npm run build
-npm start
-```
-
-The production server binds to `127.0.0.1:8787` by default and serves both the
-API and built frontend. Configure `PAGEECHO_SERVER_HOST`,
-`PAGEECHO_SERVER_PORT`, and `PAGEECHO_DATA_DIR` as needed.
-
-`npm run dev` binds to `0.0.0.0:5173` so you can open the app from another
-device on your Tailscale network (or LAN) at
-`http://<tailscale-ip-or-magicdns>:5173`. Production stays on localhost by
-default because the cache API does not implement multi-user authentication —
-set `PAGEECHO_SERVER_HOST=0.0.0.0` only when Tailscale (or similar) is your
-network boundary, or put auth/TLS in front before exposing it more widely.
-
-The server stores TTS cache artifacts plus synced library/preferences/secrets
-under `PAGEECHO_DATA_DIR`. Browser localStorage/IndexedDB remain a fast local
-cache that is reconciled on load.
+[MIT](./LICENSE) © Dion Labs
