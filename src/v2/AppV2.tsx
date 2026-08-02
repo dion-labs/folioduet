@@ -77,6 +77,7 @@ import {
   signOutUser,
   subscribeAuth,
 } from './firebase/auth';
+import { clearFirebaseAuthHandlerUrl } from './firebase/authUrl';
 import { readFishSponsorKey } from './firebase/config';
 import {
   ensureCatalogSamplePages,
@@ -447,6 +448,7 @@ export default function AppV2() {
         if (!cancelled) console.error('[PageEcho] Google redirect sign-in failed', error);
       }
       if (cancelled) return;
+      clearFirebaseAuthHandlerUrl();
       unsubscribe = subscribeAuth((user) => {
         if (!user) {
           void ensureAnonymousSession().catch((error) => {

@@ -15,6 +15,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { getFirebaseAuth, getFirebaseDb, isFirebaseConfigured } from './app';
 import { trackEvent } from './analytics';
 import { isInsecureRemoteOrigin, resolveAuthDomain } from './config';
+import { clearFirebaseAuthHandlerUrl } from './authUrl';
 import { pageechoUserPath } from './paths';
 
 const googleProvider = new GoogleAuthProvider();
@@ -103,15 +104,21 @@ export async function completeGoogleRedirectIfPresent(): Promise<User | null> {
   if (!isFirebaseConfigured()) return null;
   try {
     const result = await getRedirectResult(getFirebaseAuth());
-    if (!result?.user) return null;
+    if (!result?.user) {
+      // Session may already be restored while the address bar is still on the helper.
+      clearFirebaseAuthHandlerUrl();
+      return null;
+    }
     await ensureUserProfile(result.user).catch((error) => {
       console.warn('[PageEcho] Profile sync failed after redirect login', error);
     });
     await trackEvent('login', {
       method: result.user.isAnonymous ? 'anonymous-redirect' : 'google-redirect',
     });
+    clearFirebaseAuthHandlerUrl();
     return result.user;
   } catch (error) {
+    clearFirebaseAuthHandlerUrl();
     storeAuthError(error);
     throw error;
   }
@@ -122,6 +129,7 @@ async function finishGoogleUser(user: User): Promise<User> {
     console.warn('[PageEcho] Profile sync failed after Google login', error);
   });
   await trackEvent('login', { method: 'google' });
+  clearFirebaseAuthHandlerUrl();
   return user;
 }
 
