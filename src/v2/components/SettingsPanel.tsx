@@ -2,6 +2,7 @@ import { ChevronDown, Moon, Sun, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { FISH_AUDIO_REFERRAL_URL } from '../projectLinks';
 import type { DeviceSyncStatus, ReaderPreferences, TtsServerStatus } from '../types';
+import { FishVoicePicker } from './FishVoicePicker';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -246,14 +247,10 @@ export function SettingsPanel({
                     <span />
                   </label>
                 </div>
-                <label className="pe-field">
-                  <span>Voice ID / Reference ID</span>
-                  <input
-                    value={preferences.fishAudioVoiceId}
-                    onChange={(event) => update('fishAudioVoiceId', event.target.value)}
-                    placeholder="933563129e564b19a115bedd57b7406a"
-                  />
-                </label>
+                <FishVoicePicker
+                  voiceId={preferences.fishAudioVoiceId}
+                  onChange={(next) => update('fishAudioVoiceId', next)}
+                />
                 <label className="pe-field">
                   <span>Fish Audio API Key</span>
                   <input

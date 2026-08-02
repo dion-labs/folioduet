@@ -2112,6 +2112,85 @@
   margin-top: 12px;
 }
 
+.pe-voice-picker {
+  margin-top: 12px;
+}
+
+.pe-voice-picker .pe-field {
+  margin-top: 0;
+}
+
+.pe-voice-picker-list {
+  margin-top: 10px;
+  max-height: 240px;
+  overflow: auto;
+  display: grid;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--pe-border);
+  border-radius: 12px;
+  background: var(--pe-surface);
+}
+
+.pe-voice-picker-option {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.pe-voice-picker-option:hover {
+  background: color-mix(in srgb, var(--pe-accent) 8%, transparent);
+}
+
+.pe-voice-picker-option.is-selected {
+  background: color-mix(in srgb, var(--pe-accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--pe-accent) 35%, transparent);
+}
+
+.pe-voice-picker-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.pe-voice-picker-desc {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--pe-text-soft);
+}
+
+.pe-voice-picker-desc-muted {
+  color: var(--pe-text-faint);
+}
+
+.pe-voice-picker-custom-toggle {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pe-accent);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pe-voice-picker-custom-toggle:hover {
+  text-decoration: underline;
+}
+
+.pe-voice-picker-error {
+  color: #b45309;
+}
+
 .pe-cooldown-note {
   margin-top: 12px;
   padding: 8px 12px;
