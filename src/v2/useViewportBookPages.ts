@@ -28,6 +28,7 @@ import {
   streamFingerprint,
 } from './viewportPackCache';
 import { yieldToMain } from './yieldToMain';
+import { debugLog } from './debug';
 
 type Anchor = {
   streamIndex: number;
@@ -127,6 +128,7 @@ export function useViewportBookPages({
     onPageCountRef.current(pagesOut.length);
 
     const pageAnchor = pageAnchorRef?.current ?? null;
+    const streamBefore = { ...anchorRef.current };
     const restored = resolvePackRestore(
       startsOut,
       pagesOut.map((page) => page.length),
@@ -136,6 +138,12 @@ export function useViewportBookPages({
     // Keep the page anchor + stream untouched until a pack actually contains
     // that page — otherwise a 1-page stub / short word-pack poisons resume.
     if (restored.deferredPageAnchor) {
+      debugLog('pack', 'defer page-anchor restore (pack too short)', {
+        pageCount: startsOut.length,
+        pageAnchor,
+        streamBefore,
+        packKeyHint: `${startsOut.length}pages/${pagesOut.reduce((n, p) => n + p.length, 0)}blocks`,
+      });
       return;
     }
     if (restored.consumedPageAnchor && pageAnchorRef) {
@@ -145,6 +153,14 @@ export function useViewportBookPages({
       streamIndex: restored.streamIndex,
       wordIndex: restored.wordIndex,
     };
+    debugLog('pack', 'applyPack restore', {
+      pageCount: startsOut.length,
+      pageStartsHead: startsOut.slice(0, 8),
+      pageAnchor,
+      streamBefore,
+      restored,
+      consumedPageAnchor: restored.consumedPageAnchor,
+    });
     onRestorePageRef.current(
       restored.pageIndex,
       restored.localBlockIndex,

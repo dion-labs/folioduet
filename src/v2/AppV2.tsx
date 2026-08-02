@@ -144,6 +144,7 @@ import type {
 import { useContinuousTTS } from './useContinuousTTS';
 import { useMediaSession, toMediaSessionPlayback } from './useMediaSession';
 import { useMobileFocusChrome } from './useMobileFocusChrome';
+import { debugLog, isDebug, resetDebugFlagCache } from './debug';
 import './styles.css';
 
 type PageChangeSource = 'manual' | 'automatic';
@@ -399,12 +400,31 @@ export default function AppV2() {
       }
       return next;
     }));
+    debugLog('resume', 'persistDocumentProgress', {
+      documentId,
+      ...progress,
+      streamTrusted,
+    });
     void putDocumentProgress(documentId, {
       currentPageIndex: progress.currentPageIndex,
       activeBlockIndex: progress.activeBlockIndex,
       activeWordIndex: progress.activeWordIndex,
       ...(streamTrusted ? { activeStreamIndex: progress.activeStreamIndex! } : {}),
-    }).catch(() => undefined);
+    }).then(() => {
+      debugLog('sync', 'putDocumentProgress ok', {
+        documentId,
+        currentPageIndex: progress.currentPageIndex,
+        activeStreamIndex: streamTrusted ? progress.activeStreamIndex : '(cleared)',
+      });
+    }).catch((error) => {
+      debugLog('sync', 'putDocumentProgress FAILED', {
+        documentId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (isDebug('sync', 'resume')) {
+        console.warn('[PageEcho:sync] putDocumentProgress failed', error);
+      }
+    });
   }, []);
 
   const flushProgress = useCallback(() => {
@@ -522,6 +542,16 @@ export default function AppV2() {
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [activeCatalogSampleId, tts.primeAudioCache]);
+
+  useEffect(() => {
+    resetDebugFlagCache();
+    if (isDebug('resume', 'hydrate', 'sync', 'pack')) {
+      console.info(
+        '[PageEcho] debug logging ON — scopes via ?debug=resume (or resume,hydrate,sync,pack / debug=1). '
+        + 'Filter console for “[PageEcho:”.',
+      );
+    }
+  }, []);
 
   useEffect(() => {
     saveLibrary(documents);
@@ -725,6 +755,10 @@ export default function AppV2() {
           if (isAnonymous) {
             setActiveDocumentId(null);
             setLibraryOpen(true);
+            debugLog('hydrate', 'guest hydrate — no auto-open', {
+              libraryCount: merged.length,
+              cloudActive: bootstrap.activeDocumentId,
+            });
           } else {
             // Cloud → live local → boot snapshot → shelf top.
             const preferredActive = resolveActiveDocumentId(merged, [
@@ -745,6 +779,38 @@ export default function AppV2() {
               setSavedBlockIndex(activeDoc.activeBlockIndex);
               setSavedWordIndex(activeDoc.activeWordIndex);
             }
+            const cloudActive = preferredActive
+              ? bootstrap.library.find((doc) => doc.id === preferredActive)
+              : null;
+            const localActive = preferredActive
+              ? localLibrary.find((doc) => doc.id === preferredActive)
+              : null;
+            debugLog('hydrate', 'library hydrate', {
+              preferredActive,
+              cloudActiveDocumentId: bootstrap.activeDocumentId,
+              localActiveDocumentId: loadActiveDocumentId(),
+              bootActiveDocumentId: bootActiveDocumentIdRef.current,
+              progressHealed,
+              cloudProgress: cloudActive ? {
+                page: cloudActive.currentPageIndex,
+                stream: cloudActive.activeStreamIndex,
+                totalPages: cloudActive.totalPages,
+                updatedAt: cloudActive.updatedAt,
+              } : null,
+              localProgress: localActive ? {
+                page: localActive.currentPageIndex,
+                stream: localActive.activeStreamIndex,
+                totalPages: localActive.totalPages,
+                updatedAt: localActive.updatedAt,
+              } : null,
+              mergedProgress: activeDoc ? {
+                page: activeDoc.currentPageIndex,
+                stream: activeDoc.activeStreamIndex,
+                totalPages: activeDoc.totalPages,
+                block: activeDoc.activeBlockIndex,
+                word: activeDoc.activeWordIndex,
+              } : null,
+            });
           }
         } else if (localHasLibrary && !isAnonymous) {
           const seedLibrary = normalizeLibraryDocuments(
@@ -934,11 +1000,17 @@ export default function AppV2() {
           wordIndex: Math.max(0, pending!.wordIndex),
         };
         streamAnchorDocIdRef.current = activeDocument.id;
+        debugLog('resume', 'seed anchors from handoff', {
+          documentId: activeDocument.id,
+          streamIndex: pendingStream,
+          wordIndex: Math.max(0, pending!.wordIndex),
+        });
       } else if (streamAnchorDocIdRef.current !== activeDocument.id) {
         const wordIndex = Math.max(0, activeDocument.activeWordIndex ?? 0);
         const savedPage = Math.max(0, activeDocument.currentPageIndex ?? 0);
         // Prefer page when stream is missing OR poisoned (0 while page > 0).
-        if (shouldPreferPageResume(savedPage, activeDocument.activeStreamIndex)) {
+        const preferPage = shouldPreferPageResume(savedPage, activeDocument.activeStreamIndex);
+        if (preferPage) {
           pageAnchorRef.current = {
             pageIndex: savedPage,
             blockIndex: Math.max(0, activeDocument.activeBlockIndex ?? 0),
@@ -955,6 +1027,26 @@ export default function AppV2() {
           needsStreamHealRef.current = false;
         }
         streamAnchorDocIdRef.current = activeDocument.id;
+        debugLog('resume', 'seed anchors from document', {
+          documentId: activeDocument.id,
+          preferPage,
+          savedPage,
+          savedStream: activeDocument.activeStreamIndex,
+          savedBlock: activeDocument.activeBlockIndex,
+          savedWord: wordIndex,
+          pageAnchor: pageAnchorRef.current,
+          streamAnchor: streamAnchorRef.current,
+          needsStreamHeal: needsStreamHealRef.current,
+          totalPages: activeDocument.totalPages,
+        });
+      } else {
+        debugLog('resume', 'keep existing anchors', {
+          documentId: activeDocument.id,
+          pageAnchor: pageAnchorRef.current,
+          streamAnchor: streamAnchorRef.current,
+          docPage: activeDocument.currentPageIndex,
+          docStream: activeDocument.activeStreamIndex,
+        });
       }
     }
 
@@ -1127,6 +1219,14 @@ export default function AppV2() {
     localBlockIndex: number,
     wordIndex: number,
   ) => {
+    debugLog('resume', 'handleViewportRestore', {
+      nextPage,
+      localBlockIndex,
+      wordIndex,
+      streamAnchor: streamAnchorRef.current,
+      needsStreamHeal: needsStreamHealRef.current,
+      pageAnchorRemaining: pageAnchorRef.current,
+    });
     setPageIndex(nextPage);
     setSavedBlockIndex(localBlockIndex);
     setSavedWordIndex(wordIndex);
@@ -1134,8 +1234,15 @@ export default function AppV2() {
     if (needsStreamHealRef.current && activeDocumentId) {
       const streamIndex = streamAnchorRef.current.streamIndex;
       // Never persist a title-page "heal" — that was wiping good cloud progress.
-      if (nextPage <= 0 || streamIndex <= 0) return;
+      if (nextPage <= 0 || streamIndex <= 0) {
+        debugLog('resume', 'skip stream heal (title/stub)', { nextPage, streamIndex });
+        return;
+      }
       needsStreamHealRef.current = false;
+      debugLog('resume', 'healing stream after page-anchor restore', {
+        nextPage,
+        streamIndex,
+      });
       persistDocumentProgress(activeDocumentId, {
         currentPageIndex: nextPage,
         activeBlockIndex: localBlockIndex,
@@ -1265,6 +1372,15 @@ export default function AppV2() {
       1,
     );
     const nextPage = clampPage(requestedPage, pageCount);
+    debugLog('resume', 'changePage', {
+      requestedPage,
+      nextPage,
+      pageCount,
+      sourceOfChange,
+      documentId: activeDocument.id,
+      totalPagesField: activeDocument.totalPages,
+      viewportLen: viewportPages.length,
+    });
     if (sourceOfChange !== 'automatic') tts.stop();
     flushProgress();
     setPageIndex(nextPage);
