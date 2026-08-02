@@ -29,14 +29,39 @@ function isIpHostname(hostname: string): boolean {
   return hostname.includes(':');
 }
 
+/** True when this host proxies /__/auth to Firebase (Vite dev or explicit opt-in). */
+export function authProxyEnabled(
+  env: { DEV?: boolean; VITE_FIREBASE_AUTH_PROXY?: string } = import.meta.env,
+): boolean {
+  // Vite dev proxies /__/auth → *.firebaseapp.com (see vite.config.ts).
+  // Cloudflare Pages cannot proxy external hosts via `_redirects`, so production
+  // must keep the real Firebase authDomain unless a Worker proxy is opted in.
+  if (env.DEV) return true;
+  const flag = env.VITE_FIREBASE_AUTH_PROXY;
+  return flag === '1' || flag === 'true';
+}
+
 /**
- * Prefer same-origin authDomain so signInWithRedirect works when browsers
- * block third-party cookies (Firebase Option 3 — proxy /__/auth).
- * Raw IP hosts can't be Firebase authorized domains, so keep project authDomain.
+ * Optionally use same-origin authDomain when /__/auth is actually proxied
+ * (Firebase redirect Option 3). Otherwise keep `*.firebaseapp.com` so the
+ * Google popup/handler does not land on the SPA fallback (guest page).
+ * Raw IP hosts can't be Firebase authorized domains — never rewrite those.
  */
-export function resolveAuthDomain(configuredAuthDomain: string): string {
-  if (typeof window === 'undefined') return configuredAuthDomain;
-  const host = window.location.host;
+export function resolveAuthDomain(
+  configuredAuthDomain: string,
+  options?: {
+    host?: string | null;
+    proxyEnabled?: boolean;
+  },
+): string {
+  const proxyEnabled = options?.proxyEnabled ?? authProxyEnabled();
+  if (!proxyEnabled) return configuredAuthDomain;
+  const host =
+    options?.host !== undefined
+      ? options.host
+      : typeof window !== 'undefined'
+        ? window.location.host
+        : null;
   if (!host || isIpHostname(hostnameOf(host))) return configuredAuthDomain;
   return host;
 }

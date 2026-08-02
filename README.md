@@ -70,6 +70,7 @@ Production is **Cloudflare Pages** connected to this GitHub repo:
 - Framework: Vite · build: `npm run build` · output: `dist`
 - Production branch: `main`
 - Put `VITE_*` values in the Pages project **Environment variables** (Production)
+- `VITE_FIREBASE_AUTH_DOMAIN` must be `<project>.firebaseapp.com` (not the custom domain)
 - Disable automatic **preview / PR** deployments in Pages settings if you only want `main` live
 
 Attach a custom domain, then add that host to Firebase Auth authorized domains.
