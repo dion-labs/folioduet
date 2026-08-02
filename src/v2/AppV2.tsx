@@ -359,6 +359,7 @@ export default function AppV2() {
           provider: string;
           voiceId: string;
           audioContent: string;
+          timestampInfo?: unknown;
         }) => {
           if (!activeCatalogSampleId) return;
           if (clip.provider !== TELL_TALE_DEFAULT_AUDIO_PROVIDER) return;
@@ -369,6 +370,7 @@ export default function AppV2() {
             voiceId: clip.voiceId,
             mime: 'audio/mpeg',
             audioContent: clip.audioContent,
+            timestampInfo: clip.timestampInfo,
           }).catch(() => undefined);
         }
         : undefined,

@@ -26,7 +26,32 @@ export type CatalogAudioClip = {
   voiceId: string;
   mime: string;
   audioContent: string;
+  timestampInfo?: unknown;
 };
+
+function hasUsableTimestamps(timestampInfo: unknown): boolean {
+  if (!timestampInfo || typeof timestampInfo !== 'object') return false;
+  const alignment = (timestampInfo as {
+    wordAlignment?: {
+      words?: unknown;
+      wordStartTimeSeconds?: unknown;
+      wordEndTimeSeconds?: unknown;
+    };
+  }).wordAlignment;
+  const words = Array.isArray(alignment?.words) ? alignment.words : [];
+  const starts = Array.isArray(alignment?.wordStartTimeSeconds)
+    ? alignment.wordStartTimeSeconds
+    : [];
+  const ends = Array.isArray(alignment?.wordEndTimeSeconds)
+    ? alignment.wordEndTimeSeconds
+    : [];
+  for (let i = 0; i < words.length; i += 1) {
+    const start = Number(starts[i]);
+    const end = Number(ends[i]);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) return true;
+  }
+  return false;
+}
 
 function sampleRef(sampleId: string) {
   return doc(getFirebaseDb(), ...pageechoCatalogSamplePath(sampleId));
@@ -121,29 +146,50 @@ export async function fetchCatalogAudioClips(sampleId: string): Promise<CatalogA
       voiceId: String(data.voiceId ?? TELL_TALE_DEFAULT_AUDIO_VOICE_ID),
       mime: String(data.mime ?? 'audio/mpeg'),
       audioContent: String(data.audioContent ?? ''),
+      timestampInfo: data.timestampInfo,
     };
-  }).filter((clip) => clip.text && clip.audioContent);
+  }).filter((clip) => (
+    clip.text
+    && clip.audioContent
+    && hasUsableTimestamps(clip.timestampInfo)
+  ));
 }
 
 /**
  * Publish a clip into the shared catalog once (create-only).
  * Later listeners reuse it without calling Fish.
+ * Requires word timestamps so poisoned/incomplete clips are never shared.
  */
 export async function publishCatalogAudioClip(
   sampleId: string,
   clip: CatalogAudioClip,
 ): Promise<void> {
   if (!clip.text || !clip.audioContent) return;
+  if (!hasUsableTimestamps(clip.timestampInfo)) return;
   const id = await catalogAudioDocId(`${clip.provider}\0${clip.voiceId}\0${clip.text}`);
   const ref = doc(audioCol(sampleId), id);
   const existing = await getDoc(ref);
-  if (existing.exists()) return;
+  if (existing.exists()) {
+    // Upgrade create-only docs that were written without timings during the ship glitch.
+    const existingData = existing.data() ?? {};
+    if (!hasUsableTimestamps(existingData.timestampInfo)) {
+      await setDoc(ref, {
+        ...existingData,
+        mime: clip.mime || existingData.mime || 'audio/mpeg',
+        audioContent: clip.audioContent,
+        timestampInfo: clip.timestampInfo,
+        updatedAt: Date.now(),
+      }, { merge: true });
+    }
+    return;
+  }
   await setDoc(ref, {
     text: clip.text,
     provider: clip.provider,
     voiceId: clip.voiceId,
     mime: clip.mime || 'audio/mpeg',
     audioContent: clip.audioContent,
+    timestampInfo: clip.timestampInfo,
     updatedAt: Date.now(),
   });
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { splitTextForInworld, TTSEngine } from './TTSEngine';
+import { countUsableWordTimestamps, splitTextForInworld, TTSEngine } from './TTSEngine';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -64,13 +64,114 @@ describe('splitTextForInworld', () => {
   });
 });
 
+describe('countUsableWordTimestamps', () => {
+  it('requires finite start/end pairs with end > start', () => {
+    expect(countUsableWordTimestamps(undefined)).toBe(0);
+    expect(countUsableWordTimestamps({
+      wordAlignment: {
+        words: ['True', '!'],
+        wordStartTimeSeconds: [0, 0.2],
+        wordEndTimeSeconds: [0.2, 0.2],
+      },
+    })).toBe(1);
+  });
+});
+
+describe('TTSEngine cache keys', () => {
+  it('keys neural cache by provider, voice, and text', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        audioContent: 'YQ==',
+        timestampInfo: {
+          wordAlignment: {
+            words: ['hi'],
+            wordStartTimeSeconds: [0],
+            wordEndTimeSeconds: [0.2],
+          },
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = new TTSEngine({
+      inworldEnabled: true,
+      inworldEndpoint: '/api/tts/synthesize',
+      provider: 'fish-audio',
+      fishAudioVoiceId: 'voice-a',
+    });
+    engine.preloadBlocks(['Same text'], 1);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    engine.updateConfig({ fishAudioVoiceId: 'voice-b' });
+    engine.preloadBlocks(['Same text'], 1);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    const bodies = fetchMock.mock.calls.map(([, request]) => (
+      JSON.parse((request as RequestInit).body as string)
+    ));
+    expect(bodies[0].voiceId).toBe('voice-a');
+    expect(bodies[1].voiceId).toBe('voice-b');
+  });
+
+  it('ignores primed catalog clips for a different provider/voice', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        audioContent: 'YQ==',
+        timestampInfo: {
+          wordAlignment: {
+            words: ['Hello'],
+            wordStartTimeSeconds: [0],
+            wordEndTimeSeconds: [0.3],
+          },
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = new TTSEngine({
+      inworldEnabled: true,
+      inworldEndpoint: '/api/tts/synthesize',
+      provider: 'fish-audio',
+      fishAudioVoiceId: 'voice-a',
+    });
+    engine.primeAudioCache([
+      {
+        text: 'Hello',
+        provider: 'fish-audio',
+        voiceId: 'other-voice',
+        audioContent: 'YQ==',
+        timestampInfo: {
+          wordAlignment: {
+            words: ['Hello'],
+            wordStartTimeSeconds: [0],
+            wordEndTimeSeconds: [0.3],
+          },
+        },
+      },
+    ]);
+    engine.preloadBlocks(['Hello'], 1);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+});
+
 describe('TTSEngine preloading', () => {
   it('warms only the first safe chunk of each upcoming block', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
+      headers: { get: () => 'application/json' },
       json: async () => ({
         audioContent: 'audio',
-        timestampInfo: {},
+        timestampInfo: {
+          wordAlignment: {
+            words: ['Long'],
+            wordStartTimeSeconds: [0],
+            wordEndTimeSeconds: [0.2],
+          },
+        },
       }),
     });
     vi.stubGlobal('fetch', fetchMock);

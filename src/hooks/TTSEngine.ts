@@ -90,6 +90,32 @@ interface InworldAudio {
   timestampInfo: any;
 }
 
+/** Word timings we can actually drive highlighting from. */
+export function countUsableWordTimestamps(timestampInfo: unknown): number {
+  if (!timestampInfo || typeof timestampInfo !== 'object') return 0;
+  const alignment = (timestampInfo as {
+    wordAlignment?: {
+      words?: unknown;
+      wordStartTimeSeconds?: unknown;
+      wordEndTimeSeconds?: unknown;
+    };
+  }).wordAlignment;
+  const words = Array.isArray(alignment?.words) ? alignment.words : [];
+  const starts = Array.isArray(alignment?.wordStartTimeSeconds)
+    ? alignment.wordStartTimeSeconds
+    : [];
+  const ends = Array.isArray(alignment?.wordEndTimeSeconds)
+    ? alignment.wordEndTimeSeconds
+    : [];
+  let usable = 0;
+  for (let i = 0; i < words.length; i += 1) {
+    const start = Number(starts[i]);
+    const end = Number(ends[i]);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) usable += 1;
+  }
+  return usable;
+}
+
 /**
  * Tokenizes a line or paragraph of text into stable, punctuation-aware words
  * with exact character start and end index bounds.
@@ -143,6 +169,7 @@ export interface TTSEngineConfig {
     provider: string;
     voiceId: string;
     audioContent: string;
+    timestampInfo?: unknown;
   }) => void;
 }
 
@@ -446,6 +473,10 @@ export class TTSEngine {
         };
       });
 
+      if (countUsableWordTimestamps(cached.timestampInfo) === 0) {
+        throw new Error('Neural TTS returned no usable word timestamps.');
+      }
+
       const usableTimestampCount = this.currentTokensWithTimestamps.filter((token) => (
         Number.isFinite(token.startTime) &&
         Number.isFinite(token.endTime) &&
@@ -453,7 +484,7 @@ export class TTSEngine {
       )).length;
 
       if (usableTimestampCount === 0) {
-        throw new Error('Inworld returned no usable word timestamps.');
+        throw new Error('Neural TTS returned no usable word timestamps.');
       }
 
       const player = new Audio(audioUrl);
@@ -506,6 +537,8 @@ export class TTSEngine {
         this.stopInworldTracking();
         if (this.audioPlayer === player) {
           this.audioPlayer = null;
+          // Drop the bad entry so the next play refetches neural audio.
+          this.inworldCache.delete(this.getInworldCacheKey(chunk.text));
           console.warn("🐝 [TTSEngine] Falling back to native SpeechSynthesis due to audio element error.");
           this.playNativeFallback(fromWordIndex);
         }
@@ -550,6 +583,7 @@ export class TTSEngine {
     chunkIndex: number,
     fromWordIndex: number,
     requestId: number,
+    allowCacheRetry = true,
   ) {
     const chunk = chunks[chunkIndex];
     if (!chunk || requestId !== this.playRequestId) return;
@@ -560,6 +594,7 @@ export class TTSEngine {
     const nextChunk = chunks[chunkIndex + 1];
     if (nextChunk) this.prefetchInworld(nextChunk.text);
 
+    const cacheKey = this.getInworldCacheKey(chunk.text);
     try {
       const cached = await this.fetchInworldAudio(chunk.text);
       if (
@@ -570,10 +605,22 @@ export class TTSEngine {
       ) {
         return;
       }
-      this.playInworldCached(cached, chunks, chunkIndex, fromWordIndex, requestId);
+      try {
+        this.playInworldCached(cached, chunks, chunkIndex, fromWordIndex, requestId);
+      } catch (playError) {
+        // Poisoned memory/catalog entries (e.g. audio without timings) must not stick forever.
+        this.inworldCache.delete(cacheKey);
+        if (allowCacheRetry) {
+          console.warn("🐝 [TTSEngine] Evicting bad neural cache entry and refetching.", playError);
+          await this.playInworldChunk(chunks, chunkIndex, fromWordIndex, requestId, false);
+          return;
+        }
+        throw playError;
+      }
     } catch (err: any) {
       if (requestId !== this.playRequestId) return;
       console.error("🐝 [TTSEngine] Inworld fetch failed:", err);
+      this.inworldCache.delete(cacheKey);
 
       if (this.config.onError) {
         this.config.onError(err);
@@ -639,12 +686,22 @@ export class TTSEngine {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const msg = errorData.message || `HTTP ${response.status}`;
-        throw new Error(`Inworld API returned error: ${msg}`);
+        throw new Error(`TTS API returned error: ${msg}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          `TTS endpoint returned non-JSON (${contentType || 'unknown'}). Is /api/tts deployed?`,
+        );
       }
 
       const data = await response.json();
       if (!data.audioContent) {
-        throw new Error("No audioContent returned from Inworld API");
+        throw new Error("No audioContent returned from TTS API");
+      }
+      if (countUsableWordTimestamps(data.timestampInfo) === 0) {
+        throw new Error("TTS API returned audio without usable word timestamps");
       }
 
       const audio = {
@@ -661,6 +718,7 @@ export class TTSEngine {
           provider,
           voiceId,
           audioContent: data.audioContent,
+          timestampInfo: data.timestampInfo,
         });
       } catch {
         // publish hooks must never break playback
@@ -851,6 +909,7 @@ export class TTSEngine {
   /**
    * Prime the neural TTS cache with shared/prebaked clips.
    * Cache keys match live synthesis (`provider\\0voiceId\\0text`).
+   * Only clips for the current provider/voice with usable timestamps are accepted.
    */
   primeAudioCache(clips: Array<{
     text: string;
@@ -859,8 +918,15 @@ export class TTSEngine {
     audioContent: string;
     timestampInfo?: unknown;
   }>) {
+    const activeProvider = this.config.provider || 'inworld';
+    const activeVoice = activeProvider === 'fish-audio'
+      ? (this.config.fishAudioVoiceId || '933563129e564b19a115bedd57b7406a')
+      : (this.config.inworldVoiceId || 'Ashley');
+
     for (const clip of clips) {
       if (!clip.text || !clip.audioContent) continue;
+      if (clip.provider !== activeProvider || clip.voiceId !== activeVoice) continue;
+      if (countUsableWordTimestamps(clip.timestampInfo) === 0) continue;
       const key = `${clip.provider}\u0000${clip.voiceId}\u0000${clip.text}`;
       if (this.inworldCache.has(key)) continue;
       this.inworldCache.set(key, {
