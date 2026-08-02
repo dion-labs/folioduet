@@ -77,6 +77,7 @@ import {
   signInWithGoogle,
   signOutUser,
   subscribeAuth,
+  waitForAuthReady,
 } from './firebase/auth';
 import { clearFirebaseAuthHandlerUrl } from './firebase/authUrl';
 import { readFishSponsorKey } from './firebase/config';
@@ -101,6 +102,7 @@ import {
   loadPairedPdf,
   loadPreferences,
   loadSourceFile,
+  peekBootActiveDocumentId,
   resolveActiveDocumentId,
   saveActiveDocumentId,
   saveLibrary,
@@ -113,6 +115,7 @@ import {
   downloadDocumentBlob,
   fetchBootstrap,
   loadProcessedPages,
+  putActiveDocumentId,
   putLibrary,
   putPreferences,
   putSecrets,
@@ -219,6 +222,10 @@ export default function AppV2() {
   );
   const [authBootError, setAuthBootError] = useState<string | null>(null);
   // In Firebase mode, never paint a previous account's shelf before bootstrap.
+  // Freeze last-open id before auth effects can clear localStorage.
+  const bootActiveDocumentIdRef = useRef<string | null>(
+    firebaseMode ? peekBootActiveDocumentId() : loadActiveDocumentId(),
+  );
   const [documents, setDocuments] = useState<LibraryDocument[]>(() => (
     firebaseMode ? [] : normalizeLibraryDocuments(loadLibrary())
   ));
@@ -462,9 +469,8 @@ export default function AppV2() {
     let cancelled = false;
     let unsubscribe = () => {};
 
-    // Finish redirect BEFORE subscribing so third-party-cookie-safe helper
-    // storage is read on the same tick as session restore. Cap wait so a
-    // stuck /__/auth proxy can’t leave the login spinner forever.
+    // Finish redirect, wait for persistence, then subscribe — never mint a guest
+    // over a Google session that hasn't finished restoring.
     void (async () => {
       try {
         await Promise.race([
@@ -478,6 +484,30 @@ export default function AppV2() {
       }
       if (cancelled) return;
       clearFirebaseAuthHandlerUrl();
+
+      try {
+        await waitForAuthReady();
+      } catch (error) {
+        if (!cancelled) console.error('[PageEcho] Auth ready failed', error);
+      }
+      if (cancelled) return;
+
+      // If nothing was restored, mint a guest once before listening.
+      if (!cancelled) {
+        try {
+          await ensureAnonymousSession();
+        } catch (error) {
+          console.error('[PageEcho] Anonymous sign-in failed', error);
+          if (!cancelled) {
+            setAuthBootError(
+              error instanceof Error ? error.message : 'Anonymous sign-in failed.',
+            );
+            setAuthUser(null);
+          }
+        }
+      }
+      if (cancelled) return;
+
       unsubscribe = subscribeAuth((user) => {
         if (!user) {
           void ensureAnonymousSession().catch((error) => {
@@ -497,10 +527,15 @@ export default function AppV2() {
         );
         lastAuthUidRef.current = user.uid;
 
-        // Guests (and any uid switch) must not paint another account's active book.
+        // Guests / account switches must not paint another account's active book.
+        // Only clear persisted last-open when leaving a prior uid — first Google
+        // restore must keep the boot snapshot for hydrate.
         if (user.isAnonymous || switchedAccount) {
           setActiveDocumentId(null);
-          saveActiveDocumentId(null);
+          if (switchedAccount) {
+            saveActiveDocumentId(null);
+            bootActiveDocumentIdRef.current = null;
+          }
           setBookStream(null);
           setSource(null);
           setDocumentError(null);
@@ -580,13 +615,18 @@ export default function AppV2() {
             setActiveDocumentId(null);
             setLibraryOpen(true);
           } else {
-            // Cloud first, then this device's last-open id (localStorage), else top of shelf.
+            // Cloud → live local → boot snapshot → shelf top.
             const preferredActive = resolveActiveDocumentId(merged, [
               bootstrap.activeDocumentId,
               loadActiveDocumentId(),
+              bootActiveDocumentIdRef.current,
             ]);
             setActiveDocumentId(preferredActive);
-            if (preferredActive) setLibraryOpen(false);
+            if (preferredActive) {
+              setLibraryOpen(false);
+              // Make sure the next refresh has cloud truth even if library debounce is skipped.
+              void putActiveDocumentId(preferredActive).catch(() => undefined);
+            }
             const activeDoc = merged.find((doc) => doc.id === preferredActive);
             if (activeDoc) {
               setPageIndex(clampPage(activeDoc.currentPageIndex, activeDoc.totalPages));
@@ -601,7 +641,10 @@ export default function AppV2() {
               : localLibrary,
           );
           pendingLibraryMergeRef.current = null;
-          const seedActive = resolveActiveDocumentId(seedLibrary, [loadActiveDocumentId()]);
+          const seedActive = resolveActiveDocumentId(seedLibrary, [
+            loadActiveDocumentId(),
+            bootActiveDocumentIdRef.current,
+          ]);
           // Seed cloud/server from this device so other clients can pull next.
           await putLibrary(seedLibrary, seedActive);
           setDocuments(seedLibrary);
@@ -724,6 +767,13 @@ export default function AppV2() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [hydrateReady, documents, activeDocumentId]);
+
+  // Persist open book immediately (separate from debounced full library sync).
+  useEffect(() => {
+    if (!hydrateReady || !firebaseMode) return;
+    if (authUser?.isAnonymous) return;
+    void putActiveDocumentId(activeDocumentId).catch(() => undefined);
+  }, [hydrateReady, firebaseMode, authUser?.isAnonymous, activeDocumentId]);
 
   useEffect(() => () => {
     flushProgress();
@@ -1610,7 +1660,7 @@ export default function AppV2() {
   const isAnonymousUser = Boolean(authUser?.isAnonymous);
 
   if (firebaseMode && authUser === undefined) {
-    return <LoginGate busy />;
+    return <LoginGate busy busyMessage="Restoring your session…" />;
   }
   if (firebaseMode && !authUser) {
     return (
@@ -1624,7 +1674,12 @@ export default function AppV2() {
   // Don't mount the reader shell until account bootstrap finishes — otherwise a
   // stale local active book can flash/crash before guest home is ready.
   if (firebaseMode && !hydrateReady) {
-    return <LoginGate busy />;
+    return (
+      <LoginGate
+        busy
+        busyMessage={isAnonymousUser ? 'Starting a private guest session…' : 'Loading your library…'}
+      />
+    );
   }
 
   return (

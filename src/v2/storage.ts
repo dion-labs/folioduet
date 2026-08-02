@@ -88,8 +88,23 @@ export function saveLibrary(documents: LibraryDocument[]): void {
   localStorage.setItem(LIBRARY_KEY, JSON.stringify(documents));
 }
 
+/** Captured once at first read so auth boot races can't erase the restore hint. */
+let bootActiveDocumentId: string | null | undefined;
+
 export function loadActiveDocumentId(): string | null {
   return localStorage.getItem(ACTIVE_DOCUMENT_KEY);
+}
+
+/** Snapshot of last-open id from before this page's auth/hydrate ran. */
+export function peekBootActiveDocumentId(): string | null {
+  if (bootActiveDocumentId === undefined) {
+    try {
+      bootActiveDocumentId = localStorage.getItem(ACTIVE_DOCUMENT_KEY);
+    } catch {
+      bootActiveDocumentId = null;
+    }
+  }
+  return bootActiveDocumentId;
 }
 
 export function saveActiveDocumentId(documentId: string | null): void {

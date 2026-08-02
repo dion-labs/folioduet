@@ -2,6 +2,7 @@ export { isFirebaseConfigured, getFirebaseApp, getFirebaseAuth, getFirebaseDb } 
 export { readFirebaseConfig, readFishSponsorKey, isInsecureRemoteOrigin } from './config';
 export {
   subscribeAuth,
+  waitForAuthReady,
   signInWithGoogle,
   signOutUser,
   ensureUserProfile,
@@ -14,6 +15,7 @@ export {
   fetchFirebaseBootstrap,
   putFirebasePreferences,
   putFirebaseLibrary,
+  putFirebaseActiveDocumentId,
   putFirebaseSecrets,
   readFirebaseSecrets,
   uploadProcessedPages,

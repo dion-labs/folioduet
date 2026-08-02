@@ -3,14 +3,17 @@ import { useState } from 'react';
 
 interface LoginGateProps {
   busy?: boolean;
+  /** Busy-state copy. Defaults to a neutral session restore message. */
+  busyMessage?: string;
   error?: string | null;
   onGoogleSignIn?: () => Promise<void>;
   onRetryGuest?: () => Promise<void>;
 }
 
-/** Splash while Firebase restores / mints a guest session; recoverable if anon fails. */
+/** Splash while Firebase restores / mints a session; recoverable if anon fails. */
 export function LoginGate({
   busy = false,
+  busyMessage = 'Restoring your session…',
   error = null,
   onGoogleSignIn,
   onRetryGuest,
@@ -62,7 +65,7 @@ export function LoginGate({
           <p className="pe-login-copy">
             {showRecovery
               ? 'Guest sign-in didn’t start. You can retry as a guest or continue with Google.'
-              : 'Starting a private guest session…'}
+              : busyMessage}
           </p>
           {showRecovery ? (
             <>

@@ -86,10 +86,20 @@ export function subscribeAuth(callback: (user: User | null) => void): () => void
   return onAuthStateChanged(getFirebaseAuth(), callback);
 }
 
+/** Wait until Firebase has restored any persisted session (Google or anonymous). */
+export async function waitForAuthReady(): Promise<User | null> {
+  if (!isFirebaseConfigured()) return null;
+  const auth = getFirebaseAuth();
+  await auth.authStateReady();
+  return auth.currentUser;
+}
+
 /** Ensure every visitor has a uid (anonymous) so sync + catalog warm work without Google. */
 export async function ensureAnonymousSession(): Promise<User | null> {
   if (!isFirebaseConfigured()) return null;
   const auth = getFirebaseAuth();
+  // Never mint a guest over a session that persistence hasn't finished restoring.
+  await auth.authStateReady();
   if (auth.currentUser) return auth.currentUser;
   const result = await signInAnonymously(auth);
   await ensureUserProfile(result.user).catch((error) => {

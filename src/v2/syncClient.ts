@@ -4,6 +4,7 @@ import {
   deleteFirebaseDocument,
   fetchFirebaseBootstrap,
   fetchProcessedPages,
+  putFirebaseActiveDocumentId,
   putFirebaseLibrary,
   putFirebasePreferences,
   putFirebaseSecrets,
@@ -89,6 +90,15 @@ export async function putLibrary(
       body: JSON.stringify({ documents, activeDocumentId }),
     }),
   );
+}
+
+/** Persist only which book is open — cheap enough to run immediately on select. */
+export async function putActiveDocumentId(activeDocumentId: string | null): Promise<void> {
+  if (usesFirebaseSync()) {
+    await putFirebaseActiveDocumentId(requireUid(), activeDocumentId);
+    return;
+  }
+  // Legacy Node sync stores active id with the library payload; no separate route.
 }
 
 export async function putSecrets(input: {

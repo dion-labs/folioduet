@@ -117,6 +117,18 @@ export async function putFirebaseLibrary(
   return { documents, activeDocumentId };
 }
 
+/** Lightweight write so refresh restore doesn't wait on a full library push. */
+export async function putFirebaseActiveDocumentId(
+  uid: string,
+  activeDocumentId: string | null,
+): Promise<void> {
+  await setDoc(
+    userRef(uid),
+    { activeDocumentId, updatedAt: Date.now() },
+    { merge: true },
+  );
+}
+
 export async function putFirebaseSecrets(
   uid: string,
   input: {
