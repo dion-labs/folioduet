@@ -104,13 +104,19 @@ export async function putFirebaseLibrary(
     const { url: _url, ...cloudDoc } = document;
     const hasProcessed = document.hasProcessedContent === true
       || document.kind === 'markdown-zip';
-    batch.set(documentRef(uid, document.id), {
+    // Firestore throws on `undefined` field values — strip them so a missing
+    // stream index can't abort the whole library sync (which also writes totalPages).
+    const payload: Record<string, unknown> = {
       ...cloudDoc,
       hasProcessedContent: hasProcessed,
       processedFormat: hasProcessed
         ? (document.processedFormat ?? 'markdown-pages')
         : null,
-    }, { merge: true });
+    };
+    for (const key of Object.keys(payload)) {
+      if (payload[key] === undefined) delete payload[key];
+    }
+    batch.set(documentRef(uid, document.id), payload, { merge: true });
   }
 
   batch.set(userRef(uid), { activeDocumentId, updatedAt: Date.now() }, { merge: true });

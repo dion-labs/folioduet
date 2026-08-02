@@ -356,21 +356,35 @@ export function resolvePackRestore(
   wordIndex: number;
   streamIndex: number;
   consumedPageAnchor: boolean;
+  /** True when a page anchor exists but this pack is too short to honor it yet. */
+  deferredPageAnchor: boolean;
 } {
-  const pageCount = Math.max(1, pageStarts.length);
-
   if (pageAnchor) {
-    const pageIndex = Math.min(Math.max(0, Math.floor(pageAnchor.pageIndex)), pageCount - 1);
-    const start = pageStarts[pageIndex] ?? 0;
-    const blockCount = Math.max(1, pageBlockCounts[pageIndex] ?? 1);
+    const rawPage = Math.max(0, Math.floor(pageAnchor.pageIndex));
+    // Provisional / stub packs often have fewer pages than a prior viewport pack.
+    // Clamping to the last page (or to 0 when pageStarts is [0]) and consuming the
+    // anchor permanently snaps resume to the title page.
+    if (!hasTrustedPageStarts(pageStarts, rawPage)) {
+      return {
+        pageIndex: 0,
+        localBlockIndex: 0,
+        wordIndex: Math.max(0, Math.floor(pageAnchor.wordIndex)),
+        streamIndex: streamAnchor.streamIndex,
+        consumedPageAnchor: false,
+        deferredPageAnchor: true,
+      };
+    }
+    const start = pageStarts[rawPage] ?? 0;
+    const blockCount = Math.max(1, pageBlockCounts[rawPage] ?? 1);
     const localBlockIndex = Math.min(Math.max(0, Math.floor(pageAnchor.blockIndex)), blockCount - 1);
     const wordIndex = Math.max(0, Math.floor(pageAnchor.wordIndex));
     return {
-      pageIndex,
+      pageIndex: rawPage,
       localBlockIndex,
       wordIndex,
       streamIndex: start + localBlockIndex,
       consumedPageAnchor: true,
+      deferredPageAnchor: false,
     };
   }
 
@@ -383,6 +397,7 @@ export function resolvePackRestore(
     wordIndex: Math.max(0, streamAnchor.wordIndex),
     streamIndex: streamAnchor.streamIndex,
     consumedPageAnchor: false,
+    deferredPageAnchor: false,
   };
 }
 

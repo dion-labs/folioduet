@@ -126,7 +126,20 @@ describe('resolvePackRestore', () => {
       wordIndex: 3,
       streamIndex: 10,
       consumedPageAnchor: true,
+      deferredPageAnchor: false,
     });
+  });
+
+  it('defers a page anchor when the pack is still too short', () => {
+    const restored = resolvePackRestore(
+      [0],
+      [1],
+      { streamIndex: 0, wordIndex: 0 },
+      { pageIndex: 5, blockIndex: 2, wordIndex: 1 },
+    );
+    expect(restored.consumedPageAnchor).toBe(false);
+    expect(restored.deferredPageAnchor).toBe(true);
+    expect(restored.streamIndex).toBe(0);
   });
 
   it('falls back to stream anchor when no page anchor is set', () => {
@@ -142,6 +155,7 @@ describe('resolvePackRestore', () => {
       wordIndex: 2,
       streamIndex: 6,
       consumedPageAnchor: false,
+      deferredPageAnchor: false,
     });
   });
 });

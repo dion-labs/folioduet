@@ -233,9 +233,31 @@ function mergeLibraryDocuments(
   const byId = new Map<string, LibraryDocument>();
   for (const document of [...secondary, ...primary]) {
     const prior = byId.get(document.id);
-    if (!prior || document.updatedAt >= prior.updatedAt) {
+    if (!prior) {
       byId.set(document.id, document);
+      continue;
     }
+    // Prefer newer metadata, but never discard further-ahead reading progress
+    // (cloud can lag or get poisoned to page 0 while localStorage is correct).
+    const newer = document.updatedAt >= prior.updatedAt ? document : prior;
+    const progressSource = (document.currentPageIndex ?? 0) > (prior.currentPageIndex ?? 0)
+      ? document
+      : (prior.currentPageIndex ?? 0) > (document.currentPageIndex ?? 0)
+        ? prior
+        : newer;
+    byId.set(document.id, {
+      ...newer,
+      currentPageIndex: progressSource.currentPageIndex,
+      activeBlockIndex: progressSource.activeBlockIndex,
+      activeWordIndex: progressSource.activeWordIndex,
+      activeStreamIndex: progressSource.activeStreamIndex,
+      totalPages: Math.max(
+        newer.totalPages ?? 1,
+        prior.totalPages ?? 1,
+        (progressSource.currentPageIndex ?? 0) + 1,
+      ),
+      updatedAt: Math.max(newer.updatedAt ?? 0, prior.updatedAt ?? 0),
+    });
   }
   return normalizeLibraryDocuments(Array.from(byId.values()));
 }
@@ -358,20 +380,32 @@ export default function AppV2() {
     const updatedAt = Date.now();
     const streamTrusted = typeof progress.activeStreamIndex === 'number'
       && Number.isFinite(progress.activeStreamIndex);
-    updateDocument(documentId, {
-      currentPageIndex: progress.currentPageIndex,
-      activeBlockIndex: progress.activeBlockIndex,
-      activeWordIndex: progress.activeWordIndex,
-      activeStreamIndex: streamTrusted ? progress.activeStreamIndex! : undefined,
-      updatedAt,
-    });
+    // Never write `activeStreamIndex: undefined` into state — Firestore rejects
+    // undefined on the next full-library sync and progress/totalPages can stall.
+    setDocuments((current) => current.map((document) => {
+      if (document.id !== documentId) return document;
+      const next: LibraryDocument = {
+        ...document,
+        currentPageIndex: progress.currentPageIndex,
+        activeBlockIndex: progress.activeBlockIndex,
+        activeWordIndex: progress.activeWordIndex,
+        updatedAt,
+        totalPages: Math.max(document.totalPages ?? 1, progress.currentPageIndex + 1),
+      };
+      if (streamTrusted) {
+        next.activeStreamIndex = progress.activeStreamIndex!;
+      } else {
+        delete next.activeStreamIndex;
+      }
+      return next;
+    }));
     void putDocumentProgress(documentId, {
       currentPageIndex: progress.currentPageIndex,
       activeBlockIndex: progress.activeBlockIndex,
       activeWordIndex: progress.activeWordIndex,
       ...(streamTrusted ? { activeStreamIndex: progress.activeStreamIndex! } : {}),
     }).catch(() => undefined);
-  }, [updateDocument]);
+  }, []);
 
   const flushProgress = useCallback(() => {
     if (progressTimerRef.current !== null) {
@@ -666,13 +700,25 @@ export default function AppV2() {
         if (serverHasLibrary) {
           const pendingMerge = pendingLibraryMergeRef.current;
           pendingLibraryMergeRef.current = null;
+          // Merge cloud with local (and any pending import) so a poisoned cloud
+          // page-0 row can't wipe a correct local last-page.
           const merged = normalizeLibraryDocuments(
-            pendingMerge
-              ? mergeLibraryDocuments(bootstrap.library, pendingMerge)
-              : bootstrap.library,
+            mergeLibraryDocuments(
+              bootstrap.library,
+              pendingMerge
+                ? mergeLibraryDocuments(localLibrary, pendingMerge)
+                : localLibrary,
+            ),
           );
           setDocuments(merged);
-          if (pendingMerge) {
+          const progressHealed = merged.some((doc) => {
+            const cloud = bootstrap.library.find((entry) => entry.id === doc.id);
+            return !cloud
+              || cloud.currentPageIndex !== doc.currentPageIndex
+              || cloud.totalPages !== doc.totalPages
+              || cloud.activeStreamIndex !== doc.activeStreamIndex;
+          });
+          if (pendingMerge || progressHealed) {
             await putLibrary(merged, bootstrap.activeDocumentId ?? loadActiveDocumentId());
           }
           // Guests land on home — never auto-open a book that may belong to another account's sync.
@@ -694,7 +740,8 @@ export default function AppV2() {
             }
             const activeDoc = merged.find((doc) => doc.id === preferredActive);
             if (activeDoc) {
-              setPageIndex(clampPage(activeDoc.currentPageIndex, activeDoc.totalPages));
+              // Don't clamp to stale totalPages (sample stubs ship as 1).
+              setPageIndex(Math.max(0, activeDoc.currentPageIndex ?? 0));
               setSavedBlockIndex(activeDoc.activeBlockIndex);
               setSavedWordIndex(activeDoc.activeWordIndex);
             }
@@ -718,7 +765,7 @@ export default function AppV2() {
             setLibraryOpen(false);
             const activeDoc = seedLibrary.find((doc) => doc.id === seedActive);
             if (activeDoc) {
-              setPageIndex(clampPage(activeDoc.currentPageIndex, activeDoc.totalPages));
+              setPageIndex(Math.max(0, activeDoc.currentPageIndex ?? 0));
               setSavedBlockIndex(activeDoc.activeBlockIndex);
               setSavedWordIndex(activeDoc.activeWordIndex);
             }
@@ -840,8 +887,17 @@ export default function AppV2() {
     void putActiveDocumentId(activeDocumentId).catch(() => undefined);
   }, [hydrateReady, firebaseMode, authUser?.isAnonymous, activeDocumentId]);
 
-  useEffect(() => () => {
-    flushProgress();
+  useEffect(() => {
+    const onLeave = () => {
+      flushProgress();
+    };
+    window.addEventListener('pagehide', onLeave);
+    window.addEventListener('beforeunload', onLeave);
+    return () => {
+      window.removeEventListener('pagehide', onLeave);
+      window.removeEventListener('beforeunload', onLeave);
+      flushProgress();
+    };
   }, [flushProgress]);
 
   useEffect(() => {
@@ -1077,8 +1133,8 @@ export default function AppV2() {
     // Heal poisoned stream metadata once pack derives a real stream index.
     if (needsStreamHealRef.current && activeDocumentId) {
       const streamIndex = streamAnchorRef.current.streamIndex;
-      // Skip stub packs that still look like "start of book" while page > 0.
-      if (nextPage > 0 && streamIndex <= 0) return;
+      // Never persist a title-page "heal" — that was wiping good cloud progress.
+      if (nextPage <= 0 || streamIndex <= 0) return;
       needsStreamHealRef.current = false;
       persistDocumentProgress(activeDocumentId, {
         currentPageIndex: nextPage,
@@ -1201,7 +1257,14 @@ export default function AppV2() {
 
   const changePage = useCallback((requestedPage: number, sourceOfChange: PageChangeSource) => {
     if (!activeDocument) return;
-    const nextPage = clampPage(requestedPage, activeDocument.totalPages);
+    // Viewport pack count is source of truth; library totalPages can lag at 1.
+    const pageCount = Math.max(
+      viewportPages.length,
+      pageStartsRef.current.length,
+      activeDocument.totalPages,
+      1,
+    );
+    const nextPage = clampPage(requestedPage, pageCount);
     if (sourceOfChange !== 'automatic') tts.stop();
     flushProgress();
     setPageIndex(nextPage);
@@ -1944,7 +2007,7 @@ export default function AppV2() {
                     />
                     <span>of {activeDocument.totalPages}</span>
                   </label>
-                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1, 'manual')} disabled={pageIndex + 1 >= activeDocument.totalPages} aria-label="Next page">
+                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1, 'manual')} disabled={pageIndex + 1 >= Math.max(viewportPages.length, activeDocument.totalPages)} aria-label="Next page">
                     <ChevronRight size={18} />
                   </button>
                 </div>
@@ -2161,7 +2224,7 @@ export default function AppV2() {
                   <button className="pe-icon-button" onClick={handleStop} disabled={!tts.isPlaying} aria-label="Stop">
                     <Square size={16} fill="currentColor" />
                   </button>
-                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1, 'manual')} disabled={pageIndex + 1 >= activeDocument.totalPages} aria-label="Next page">
+                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1, 'manual')} disabled={pageIndex + 1 >= Math.max(viewportPages.length, activeDocument.totalPages)} aria-label="Next page">
                     <ArrowRight size={17} />
                   </button>
                   {canOpenChapters && (

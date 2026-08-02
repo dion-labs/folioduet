@@ -133,6 +133,11 @@ export function useViewportBookPages({
       anchorRef.current,
       pageAnchor,
     );
+    // Keep the page anchor + stream untouched until a pack actually contains
+    // that page — otherwise a 1-page stub / short word-pack poisons resume.
+    if (restored.deferredPageAnchor) {
+      return;
+    }
     if (restored.consumedPageAnchor && pageAnchorRef) {
       pageAnchorRef.current = null;
     }
