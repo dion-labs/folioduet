@@ -1,6 +1,7 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -125,6 +126,33 @@ export async function putFirebaseActiveDocumentId(
   await setDoc(
     userRef(uid),
     { activeDocumentId, updatedAt: Date.now() },
+    { merge: true },
+  );
+}
+
+/** Persist reading position without rewriting the whole library. */
+export async function putFirebaseDocumentProgress(
+  uid: string,
+  documentId: string,
+  progress: {
+    currentPageIndex: number;
+    activeBlockIndex: number;
+    activeWordIndex: number;
+    /** Omit / undefined clears a previously poisoned stream index. */
+    activeStreamIndex?: number;
+  },
+): Promise<void> {
+  await setDoc(
+    documentRef(uid, documentId),
+    {
+      currentPageIndex: Math.max(0, progress.currentPageIndex),
+      activeBlockIndex: Math.max(0, progress.activeBlockIndex),
+      activeWordIndex: Math.max(0, progress.activeWordIndex),
+      activeStreamIndex: typeof progress.activeStreamIndex === 'number'
+        ? Math.max(0, progress.activeStreamIndex)
+        : deleteField(),
+      updatedAt: Date.now(),
+    },
     { merge: true },
   );
 }

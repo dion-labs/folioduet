@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   expandStreamForBudget,
   findPageForStreamIndex,
+  hasTrustedPageStarts,
   packStreamByHeight,
   resolvePackRestore,
+  shouldPreferPageResume,
   type BookStreamBlock,
 } from './bookStream';
 
@@ -90,6 +92,23 @@ describe('findPageForStreamIndex', () => {
     expect(findPageForStreamIndex([0, 4, 9], 4)).toBe(1);
     expect(findPageForStreamIndex([0, 4, 9], 8)).toBe(1);
     expect(findPageForStreamIndex([0, 4, 9], 12)).toBe(2);
+  });
+});
+
+describe('hasTrustedPageStarts', () => {
+  it('rejects stub or short pageStarts before the target page exists', () => {
+    expect(hasTrustedPageStarts([0], 3)).toBe(false);
+    expect(hasTrustedPageStarts([], 0)).toBe(false);
+    expect(hasTrustedPageStarts([0, 4, 9], 2)).toBe(true);
+  });
+});
+
+describe('shouldPreferPageResume', () => {
+  it('uses page when stream is missing or poisoned at zero', () => {
+    expect(shouldPreferPageResume(5, undefined)).toBe(true);
+    expect(shouldPreferPageResume(5, 0)).toBe(true);
+    expect(shouldPreferPageResume(0, 0)).toBe(false);
+    expect(shouldPreferPageResume(5, 42)).toBe(false);
   });
 });
 

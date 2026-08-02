@@ -26,7 +26,12 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import type { MarkdownBlock } from '../hooks/useTTS';
-import { findPageForStreamIndex, streamPageToMarkdownBlocks } from './bookStream';
+import {
+  findPageForStreamIndex,
+  hasTrustedPageStarts,
+  shouldPreferPageResume,
+  streamPageToMarkdownBlocks,
+} from './bookStream';
 import {
   buildChapterIndex,
   findCurrentChapterIndex,
@@ -116,6 +121,7 @@ import {
   fetchBootstrap,
   loadProcessedPages,
   putActiveDocumentId,
+  putDocumentProgress,
   putLibrary,
   putPreferences,
   putSecrets,
@@ -145,7 +151,8 @@ interface PendingProgress {
   pageIndex: number;
   blockIndex: number;
   wordIndex: number;
-  streamIndex: number;
+  /** Null when pageStarts are not trusted yet — do not persist / poison stream. */
+  streamIndex: number | null;
 }
 
 function clampPage(pageIndex: number, totalPages: number): number {
@@ -190,6 +197,22 @@ function normalizeLibraryDocuments(documents: LibraryDocument[]): LibraryDocumen
           prior?.currentPageIndex ?? 0,
           document.currentPageIndex ?? 0,
         ),
+        // Keep progress fields from the further-ahead copy.
+        activeBlockIndex: (
+          (document.currentPageIndex ?? 0) >= (prior?.currentPageIndex ?? 0)
+            ? document
+            : prior ?? document
+        ).activeBlockIndex,
+        activeWordIndex: (
+          (document.currentPageIndex ?? 0) >= (prior?.currentPageIndex ?? 0)
+            ? document
+            : prior ?? document
+        ).activeWordIndex,
+        activeStreamIndex: (
+          (document.currentPageIndex ?? 0) >= (prior?.currentPageIndex ?? 0)
+            ? document
+            : prior ?? document
+        ).activeStreamIndex,
         updatedAt: Math.max(prior?.updatedAt ?? 0, document.updatedAt ?? 0),
         addedAt: Math.min(prior?.addedAt ?? document.addedAt, document.addedAt),
       };
@@ -309,15 +332,44 @@ export default function AppV2() {
   const streamAnchorRef = useRef({ streamIndex: 0, wordIndex: 0 });
   /** Document id the current streamAnchorRef belongs to — avoids clobbering handoff restores. */
   const streamAnchorDocIdRef = useRef<string | null>(null);
-  /** One-shot legacy page restore when `activeStreamIndex` is missing. */
+  /** One-shot legacy page restore when `activeStreamIndex` is missing/poisoned. */
   const pageAnchorRef = useRef<{ pageIndex: number; blockIndex: number; wordIndex: number } | null>(null);
   const pageStartsRef = useRef<number[]>([0]);
+  /** After a page-anchor resume, write the healed stream index once pack settles. */
+  const needsStreamHealRef = useRef(false);
 
   const updateDocument = useCallback((documentId: string, patch: Partial<LibraryDocument>) => {
     setDocuments((current) => current.map((document) => (
       document.id === documentId ? { ...document, ...patch } : document
     )));
   }, []);
+
+  const persistDocumentProgress = useCallback((
+    documentId: string,
+    progress: {
+      currentPageIndex: number;
+      activeBlockIndex: number;
+      activeWordIndex: number;
+      activeStreamIndex?: number | null;
+    },
+  ) => {
+    const updatedAt = Date.now();
+    const streamTrusted = typeof progress.activeStreamIndex === 'number'
+      && Number.isFinite(progress.activeStreamIndex);
+    updateDocument(documentId, {
+      currentPageIndex: progress.currentPageIndex,
+      activeBlockIndex: progress.activeBlockIndex,
+      activeWordIndex: progress.activeWordIndex,
+      activeStreamIndex: streamTrusted ? progress.activeStreamIndex! : undefined,
+      updatedAt,
+    });
+    void putDocumentProgress(documentId, {
+      currentPageIndex: progress.currentPageIndex,
+      activeBlockIndex: progress.activeBlockIndex,
+      activeWordIndex: progress.activeWordIndex,
+      ...(streamTrusted ? { activeStreamIndex: progress.activeStreamIndex! } : {}),
+    }).catch(() => undefined);
+  }, [updateDocument]);
 
   const flushProgress = useCallback(() => {
     if (progressTimerRef.current !== null) {
@@ -327,21 +379,27 @@ export default function AppV2() {
     const progress = pendingProgressRef.current;
     if (!progress) return;
     pendingProgressRef.current = null;
-    updateDocument(progress.documentId, {
+    persistDocumentProgress(progress.documentId, {
       currentPageIndex: progress.pageIndex,
       activeBlockIndex: progress.blockIndex,
       activeWordIndex: progress.wordIndex,
       activeStreamIndex: progress.streamIndex,
-      updatedAt: Date.now(),
     });
-  }, [updateDocument]);
+  }, [persistDocumentProgress]);
 
   const queueProgress = useCallback((blockIndex: number, wordIndex: number) => {
     if (!activeDocumentId) return;
     setSavedBlockIndex(blockIndex);
     setSavedWordIndex(wordIndex);
-    const streamIndex = (pageStartsRef.current[pageIndex] ?? 0) + blockIndex;
-    streamAnchorRef.current = { streamIndex, wordIndex };
+    const trusted = hasTrustedPageStarts(pageStartsRef.current, pageIndex);
+    const streamIndex = trusted
+      ? (pageStartsRef.current[pageIndex] ?? 0) + blockIndex
+      : null;
+    if (streamIndex !== null) {
+      streamAnchorRef.current = { streamIndex, wordIndex };
+    } else {
+      streamAnchorRef.current = { ...streamAnchorRef.current, wordIndex };
+    }
     pendingProgressRef.current = {
       documentId: activeDocumentId,
       pageIndex,
@@ -820,23 +878,23 @@ export default function AppV2() {
         streamAnchorDocIdRef.current = activeDocument.id;
       } else if (streamAnchorDocIdRef.current !== activeDocument.id) {
         const wordIndex = Math.max(0, activeDocument.activeWordIndex ?? 0);
-        if (
-          typeof activeDocument.activeStreamIndex === 'number'
-          && Number.isFinite(activeDocument.activeStreamIndex)
-        ) {
-          pageAnchorRef.current = null;
-          streamAnchorRef.current = {
-            streamIndex: Math.max(0, activeDocument.activeStreamIndex),
-            wordIndex,
-          };
-        } else {
-          // Legacy library entries: restore by saved viewport page on first pack.
+        const savedPage = Math.max(0, activeDocument.currentPageIndex ?? 0);
+        // Prefer page when stream is missing OR poisoned (0 while page > 0).
+        if (shouldPreferPageResume(savedPage, activeDocument.activeStreamIndex)) {
           pageAnchorRef.current = {
-            pageIndex: Math.max(0, activeDocument.currentPageIndex ?? 0),
+            pageIndex: savedPage,
             blockIndex: Math.max(0, activeDocument.activeBlockIndex ?? 0),
             wordIndex,
           };
           streamAnchorRef.current = { streamIndex: 0, wordIndex };
+          needsStreamHealRef.current = savedPage > 0;
+        } else {
+          pageAnchorRef.current = null;
+          streamAnchorRef.current = {
+            streamIndex: Math.max(0, activeDocument.activeStreamIndex ?? 0),
+            wordIndex,
+          };
+          needsStreamHealRef.current = false;
         }
         streamAnchorDocIdRef.current = activeDocument.id;
       }
@@ -1014,7 +1072,20 @@ export default function AppV2() {
     setPageIndex(nextPage);
     setSavedBlockIndex(localBlockIndex);
     setSavedWordIndex(wordIndex);
-  }, []);
+    // Heal poisoned stream metadata once pack derives a real stream index.
+    if (needsStreamHealRef.current && activeDocumentId) {
+      const streamIndex = streamAnchorRef.current.streamIndex;
+      // Skip stub packs that still look like "start of book" while page > 0.
+      if (nextPage > 0 && streamIndex <= 0) return;
+      needsStreamHealRef.current = false;
+      persistDocumentProgress(activeDocumentId, {
+        currentPageIndex: nextPage,
+        activeBlockIndex: localBlockIndex,
+        activeWordIndex: wordIndex,
+        activeStreamIndex: streamIndex,
+      });
+    }
+  }, [activeDocumentId, persistDocumentProgress]);
 
   const {
     pages: viewportPages,
@@ -1134,11 +1205,11 @@ export default function AppV2() {
     setPageIndex(nextPage);
     setSavedBlockIndex(0);
     setSavedWordIndex(0);
-    const streamIndex = pageStartsRef.current[nextPage] ?? 0;
-    streamAnchorRef.current = {
-      streamIndex,
-      wordIndex: 0,
-    };
+    const trusted = hasTrustedPageStarts(pageStartsRef.current, nextPage);
+    const streamIndex = trusted ? (pageStartsRef.current[nextPage] ?? 0) : null;
+    if (streamIndex !== null) {
+      streamAnchorRef.current = { streamIndex, wordIndex: 0 };
+    }
     pageAnchorRef.current = null;
     // If this page is already packed, paint it immediately — don't flash the
     // preparing spinner while background refit is still measuring later pages.
@@ -1162,14 +1233,13 @@ export default function AppV2() {
       setNextPageContent({ pageIndex: -1, blocks: [] });
       setMarkdownBlocks([]);
     }
-    updateDocument(activeDocument.id, {
+    persistDocumentProgress(activeDocument.id, {
       currentPageIndex: nextPage,
       activeBlockIndex: 0,
       activeWordIndex: 0,
       activeStreamIndex: streamIndex,
-      updatedAt: Date.now(),
     });
-  }, [activeDocument, bookStream, flushProgress, tts.stop, updateDocument, viewportPages]);
+  }, [activeDocument, bookStream, flushProgress, persistDocumentProgress, tts.stop, viewportPages]);
 
   useEffect(() => {
     pageChangeRef.current = changePage;
@@ -1214,12 +1284,11 @@ export default function AppV2() {
     setLibraryOpen(false);
     setHandoffError(null);
     setHandoffResume(null);
-    updateDocument(document.id, {
+    persistDocumentProgress(document.id, {
       currentPageIndex: nextPage,
       activeBlockIndex: localBlock,
       activeWordIndex: wordIndex,
       activeStreamIndex: streamIndex,
-      updatedAt: Date.now(),
     });
     pendingHandoffRef.current = null;
     handoffArrivalRef.current = null;
@@ -1227,7 +1296,7 @@ export default function AppV2() {
     clearPendingHandoff();
     clearHandoffFromUrl();
     return true;
-  }, [documents, tts.stop, updateDocument]);
+  }, [documents, persistDocumentProgress, tts.stop]);
 
   const dismissPendingHandoff = useCallback(() => {
     pendingHandoffRef.current = null;
@@ -1313,7 +1382,10 @@ export default function AppV2() {
     const wordIndex = tts.isPlaying && tts.activeWordIndex >= 0 ? tts.activeWordIndex : savedWordIndex;
     const localBlock = Math.max(0, blockIndex);
     const localWord = Math.max(0, wordIndex);
-    const streamIndex = (pageStartsRef.current[pageIndex] ?? 0) + localBlock;
+    const trusted = hasTrustedPageStarts(pageStartsRef.current, pageIndex);
+    const streamIndex = trusted
+      ? (pageStartsRef.current[pageIndex] ?? 0) + localBlock
+      : streamAnchorRef.current.streamIndex;
     const target: HandoffTarget = {
       documentId: activeDocument.id,
       pageIndex,
@@ -1322,12 +1394,11 @@ export default function AppV2() {
       streamIndex,
     };
     streamAnchorRef.current = { streamIndex, wordIndex: localWord };
-    updateDocument(activeDocument.id, {
+    persistDocumentProgress(activeDocument.id, {
       currentPageIndex: pageIndex,
       activeBlockIndex: target.blockIndex,
       activeWordIndex: target.wordIndex,
-      activeStreamIndex: streamIndex,
-      updatedAt: Date.now(),
+      activeStreamIndex: trusted ? streamIndex : null,
     });
     setHandoffUrl(buildHandoffUrl(window.location.origin, target));
     setHandoffOpen(true);
@@ -1335,12 +1406,12 @@ export default function AppV2() {
     activeDocument,
     flushProgress,
     pageIndex,
+    persistDocumentProgress,
     savedBlockIndex,
     savedWordIndex,
     tts.activeBlockIndex,
     tts.activeWordIndex,
     tts.isPlaying,
-    updateDocument,
   ]);
 
   const importFiles = useCallback(async (files: File[]) => {

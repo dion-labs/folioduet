@@ -322,6 +322,28 @@ export type PackStreamAnchor = {
   wordIndex: number;
 };
 
+/**
+ * True when pageStarts actually describe `pageIndex` (not a stale [0] stub).
+ * Writing streamIndex before this is ready poisons resume as stream 0.
+ */
+export function hasTrustedPageStarts(pageStarts: number[], pageIndex: number): boolean {
+  return pageStarts.length > pageIndex && Number.isFinite(pageStarts[pageIndex]);
+}
+
+/**
+ * Prefer saved viewport page when stream index is missing or clearly poisoned
+ * (stream says "start" while currentPageIndex is later).
+ */
+export function shouldPreferPageResume(
+  currentPageIndex: number,
+  activeStreamIndex: number | undefined,
+): boolean {
+  if (typeof activeStreamIndex !== 'number' || !Number.isFinite(activeStreamIndex)) {
+    return true;
+  }
+  return activeStreamIndex <= 0 && currentPageIndex > 0;
+}
+
 /** Resolve which page/block to show after a pack — page anchor wins once, then stream. */
 export function resolvePackRestore(
   pageStarts: number[],

@@ -5,6 +5,7 @@ import {
   fetchFirebaseBootstrap,
   fetchProcessedPages,
   putFirebaseActiveDocumentId,
+  putFirebaseDocumentProgress,
   putFirebaseLibrary,
   putFirebasePreferences,
   putFirebaseSecrets,
@@ -99,6 +100,21 @@ export async function putActiveDocumentId(activeDocumentId: string | null): Prom
     return;
   }
   // Legacy Node sync stores active id with the library payload; no separate route.
+}
+
+/** Persist page/stream progress immediately (don't wait on debounced library sync). */
+export async function putDocumentProgress(
+  documentId: string,
+  progress: {
+    currentPageIndex: number;
+    activeBlockIndex: number;
+    activeWordIndex: number;
+    activeStreamIndex?: number;
+  },
+): Promise<void> {
+  if (usesFirebaseSync()) {
+    await putFirebaseDocumentProgress(requireUid(), documentId, progress);
+  }
 }
 
 export async function putSecrets(input: {

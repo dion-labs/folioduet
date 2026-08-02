@@ -16,6 +16,7 @@ export {
   putFirebasePreferences,
   putFirebaseLibrary,
   putFirebaseActiveDocumentId,
+  putFirebaseDocumentProgress,
   putFirebaseSecrets,
   readFirebaseSecrets,
   uploadProcessedPages,
