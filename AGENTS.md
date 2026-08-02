@@ -63,10 +63,11 @@ Do **not** reuse `dionlabs-fe92e` unless you are deploying the official Dion Lab
 
 ## Cloudflare Pages (user’s account)
 
-1. Create a Pages project (e.g. `pageecho`).
-2. Add GitHub Actions secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, plus Vite `VITE_*` vars/secrets (see `.github/workflows/deploy-pages.yml`).
-3. Workflow deploys **only `main`** (and `workflow_dispatch`). Do not add `pull_request` triggers if you want zero PR deploys.
-4. Attach a custom domain; add that domain to Firebase Auth authorized domains.
+1. In Cloudflare: **Workers & Pages → Create → Import a repository** → this GitHub repo.
+2. Settings: project name e.g. `pageecho`, production branch `main`, framework **Vite**, build `npm run build`, output `dist`.
+3. Add Production env vars: all needed `VITE_FIREBASE_*`, optional `VITE_FISH_AUDIO_SPONSOR_KEY`, `VITE_GITHUB_REPO_URL`, `VITE_GITHUB_SPONSORS_URL`.
+4. After create: disable automatic **preview / PR** deployments so only `main` ships.
+5. Attach a custom domain; add that domain to Firebase Auth authorized domains.
 
 ## Data model (short)
 

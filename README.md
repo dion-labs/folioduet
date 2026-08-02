@@ -65,9 +65,14 @@ See [`.env.example`](./.env.example), [`AGENTS.md`](./AGENTS.md) (fresh Firebase
 
 ## Deploy
 
-GitHub Actions deploys **`main` only** to Cloudflare Pages (see [`.github/workflows/deploy-pages.yml`](./.github/workflows/deploy-pages.yml)). PRs do not deploy.
+Production is **Cloudflare Pages** connected to this GitHub repo:
 
-You still need to create the Cloudflare Pages project + DNS subdomain once, and add the Actions secrets/vars listed in the workflow file.
+- Framework: Vite · build: `npm run build` · output: `dist`
+- Production branch: `main`
+- Put `VITE_*` values in the Pages project **Environment variables** (Production)
+- Disable automatic **preview / PR** deployments in Pages settings if you only want `main` live
+
+Attach a custom domain, then add that host to Firebase Auth authorized domains.
 
 ## License
 
