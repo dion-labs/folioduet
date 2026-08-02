@@ -1,4 +1,4 @@
-const CACHE = 'pageecho-shell-v2';
+const CACHE = 'pageecho-shell-v3';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/pageecho-192.png', '/icons/pageecho-512.png'];
 
 self.addEventListener('install', (event) => {

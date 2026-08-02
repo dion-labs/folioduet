@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PageEcho">
+  <rect width="64" height="64" rx="14" fill="#171a18"/>
+  <defs>
+    <linearGradient id="pe" x1="12" y1="10" x2="52" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f06e4f"/>
+      <stop offset="1" stop-color="#d75638"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="44" height="44" rx="12" fill="url(#pe)"/>
+  <!-- Lucide-like BookOpen -->
+  <g fill="none" stroke="#fff7f2" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 20.5v23"/>
+    <path d="M32 20.5c-3.2-2.2-7.2-3.2-12-3.2H14v23.5c4.4 0 8.4 1.1 12 3.2"/>
+    <path d="M32 20.5c3.2-2.2 7.2-3.2 12-3.2H50v23.5c-4.4 0-8.4 1.1-12 3.2"/>
+  </g>
+</svg>
