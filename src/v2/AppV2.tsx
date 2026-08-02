@@ -8,6 +8,7 @@ import {
   FileText,
   Library,
   Link2,
+  ListTree,
   LoaderCircle,
   Menu,
   Moon,
@@ -26,15 +27,22 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { BimodalPDFViewer } from '../components/BimodalPDFViewer';
 import type { MarkdownBlock } from '../hooks/useTTS';
-import { BimodalSyncEngine, type ProgressState } from '../utils/BimodalSyncEngine';
-import { calculateProgress, extractMarkdownPages, prepareMarkdownPage } from './documents';
+import { streamPageToMarkdownBlocks } from './bookStream';
+import {
+  buildChapterIndex,
+  findCurrentChapterIndex,
+  locateChaptersOnPages,
+} from './chapters';
+import { calculateProgress, loadMarkdownBook, loadMarkdownStream, type BookStreamBlock } from './documents';
+import { ChapterListPanel } from './components/ChapterListPanel';
 import { ImportDialog } from './components/ImportDialog';
 import { LibrarySidebar } from './components/LibrarySidebar';
 import { ReaderWords } from './components/ReaderWords';
 import { SettingsPanel } from './components/SettingsPanel';
+import { useViewportBookPages } from './useViewportBookPages';
 import {
   createDocumentId,
   deleteDocumentFiles,
@@ -49,18 +57,29 @@ import {
   savePreferences,
   saveSourceFile,
 } from './storage';
+import {
+  deleteSyncedDocument,
+  downloadDocumentBlob,
+  fetchBootstrap,
+  putLibrary,
+  putPreferences,
+  putSecrets,
+  toSyncedPreferences,
+  uploadDocumentBlob,
+} from './syncClient';
 import type {
+  DeviceSyncStatus,
   LibraryDocument,
   PageContent,
-  ReaderPreferences,
   ReaderView,
-  SyncStatus,
   TtsServerStatus,
 } from './types';
 import { useContinuousTTS } from './useContinuousTTS';
+import { useMediaSession, toMediaSessionPlayback } from './useMediaSession';
+import { useMobileFocusChrome } from './useMobileFocusChrome';
 import './styles.css';
 
-type PageChangeSource = 'manual' | 'automatic' | 'remote';
+type PageChangeSource = 'manual' | 'automatic';
 
 interface PendingProgress {
   documentId: string;
@@ -102,29 +121,36 @@ export default function AppV2() {
   const [pageContent, setPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
   const [nextPageContent, setNextPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
   const [markdownBlocks, setMarkdownBlocks] = useState<MarkdownBlock[]>([]);
-  const [zipPages, setZipPages] = useState<string[] | null>(null);
+  const [bookStream, setBookStream] = useState<BookStreamBlock[] | null>(null);
   const [source, setSource] = useState<File | string | null>(null);
   const [pairedPdf, setPairedPdf] = useState<File | null>(null);
   const [documentLoading, setDocumentLoading] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
 
-  const [preferences, setPreferences] = useState<ReaderPreferences>(loadPreferences);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('disabled');
-  const [ttsServerStatus, setTtsServerStatus] = useState<TtsServerStatus>('checking');
+  const [preferences, setPreferences] = useState(loadPreferences);
+  const [deviceSyncStatus, setDeviceSyncStatus] = useState<DeviceSyncStatus>('idle');
+  const [inworldServerStatus, setInworldServerStatus] = useState<TtsServerStatus>('checking');
+  const [fishAudioServerStatus, setFishAudioServerStatus] = useState<TtsServerStatus>('checking');
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [query, setQuery] = useState('');
-  const [libraryOpen, setLibraryOpen] = useState(true);
+  const [libraryOpen, setLibraryOpen] = useState(() => !loadActiveDocumentId());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chaptersOpen, setChaptersOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [pairBusy, setPairBusy] = useState(false);
+  const [hydrateReady, setHydrateReady] = useState(false);
 
-  const syncEngineRef = useRef<BimodalSyncEngine | null>(null);
   const pageChangeRef = useRef<(nextPage: number, source: PageChangeSource) => void>(() => undefined);
-  const remoteProgressRef = useRef<(state: ProgressState) => void>(() => undefined);
   const pendingProgressRef = useRef<PendingProgress | null>(null);
   const progressTimerRef = useRef<number | null>(null);
+  const skipNextLibraryPushRef = useRef(true);
+  const skipNextPreferencesPushRef = useRef(true);
+  const readerStageRef = useRef<HTMLElement | null>(null);
+  const pageBodyRef = useRef<HTMLDivElement | null>(null);
+  const streamAnchorRef = useRef({ streamIndex: 0, wordIndex: 0 });
+  const pageStartsRef = useRef<number[]>([0]);
 
   const updateDocument = useCallback((documentId: string, patch: Partial<LibraryDocument>) => {
     setDocuments((current) => current.map((document) => (
@@ -152,6 +178,8 @@ export default function AppV2() {
     if (!activeDocumentId) return;
     setSavedBlockIndex(blockIndex);
     setSavedWordIndex(wordIndex);
+    const streamIndex = (pageStartsRef.current[pageIndex] ?? 0) + blockIndex;
+    streamAnchorRef.current = { streamIndex, wordIndex };
     pendingProgressRef.current = {
       documentId: activeDocumentId,
       pageIndex,
@@ -161,18 +189,21 @@ export default function AppV2() {
     if (progressTimerRef.current === null) {
       progressTimerRef.current = window.setTimeout(flushProgress, 450);
     }
-    syncEngineRef.current?.updateLocalProgress(pageIndex, blockIndex, wordIndex);
   }, [activeDocumentId, flushProgress, pageIndex]);
 
   const ttsConfig = useMemo(() => ({
     rate: preferences.playbackRate,
     volume: preferences.volume,
-    inworldEnabled: preferences.inworldEnabled,
+    inworldEnabled: preferences.inworldEnabled || preferences.fishAudioEnabled,
     inworldEndpoint: '/api/tts/synthesize',
     inworldVoiceId: preferences.inworldVoiceId,
+    provider: preferences.fishAudioEnabled ? ('fish-audio' as const) : ('inworld' as const),
+    fishAudioVoiceId: preferences.fishAudioVoiceId,
   }), [
     preferences.inworldEnabled,
     preferences.inworldVoiceId,
+    preferences.fishAudioEnabled,
+    preferences.fishAudioVoiceId,
     preferences.playbackRate,
     preferences.volume,
   ]);
@@ -203,22 +234,110 @@ export default function AppV2() {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/health')
-      .then((response) => {
-        if (!response.ok) throw new Error('Cache server unavailable.');
-        return response.json();
-      })
-      .then((health) => {
+    setDeviceSyncStatus('syncing');
+    fetchBootstrap()
+      .then(async (bootstrap) => {
         if (!active) return;
-        setTtsServerStatus(health.inworldConfigured ? 'ready' : 'missing-credential');
+
+        const localLibrary = loadLibrary();
+        const localPreferences = loadPreferences();
+        const serverHasLibrary = bootstrap.library.length > 0;
+        const serverHasPreferences = (bootstrap.preferences.updatedAt ?? 0) > 0;
+        const localHasLibrary = localLibrary.length > 0;
+
+        skipNextLibraryPushRef.current = true;
+        skipNextPreferencesPushRef.current = true;
+
+        if (serverHasPreferences) {
+          setPreferences({
+            ...localPreferences,
+            ...bootstrap.preferences,
+            inworldApiKey: '',
+            fishAudioApiKey: '',
+          });
+        } else {
+          await putPreferences(toSyncedPreferences(localPreferences));
+        }
+
+        if (serverHasLibrary) {
+          setDocuments(bootstrap.library);
+          setActiveDocumentId(bootstrap.activeDocumentId);
+          const active = bootstrap.library.find((doc) => doc.id === bootstrap.activeDocumentId);
+          if (active) {
+            setPageIndex(clampPage(active.currentPageIndex, active.totalPages));
+            setSavedBlockIndex(active.activeBlockIndex);
+            setSavedWordIndex(active.activeWordIndex);
+          }
+        } else if (localHasLibrary) {
+          // Seed the server from this device so the phone can pull next.
+          await putLibrary(localLibrary, loadActiveDocumentId());
+          for (const document of localLibrary) {
+            if (document.isSample) continue;
+            const source = await loadSourceFile(document);
+            if (source instanceof File) {
+              await uploadDocumentBlob(document.id, 'source', source);
+            }
+            if (document.kind === 'markdown-zip') {
+              const paired = await loadPairedPdf(document.id);
+              if (paired) await uploadDocumentBlob(document.id, 'paired-pdf', paired);
+            }
+          }
+        }
+
+        setInworldServerStatus(bootstrap.secrets.inworldConfigured ? 'ready' : 'missing-credential');
+        setFishAudioServerStatus(bootstrap.secrets.fishAudioConfigured ? 'ready' : 'missing-credential');
+        setDeviceSyncStatus('synced');
+        setLastSyncedAt(Date.now());
       })
       .catch(() => {
-        if (active) setTtsServerStatus('offline');
+        if (!active) return;
+        setDeviceSyncStatus('offline');
+        setInworldServerStatus('offline');
+        setFishAudioServerStatus('offline');
+      })
+      .finally(() => {
+        if (active) setHydrateReady(true);
       });
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!hydrateReady) return;
+    if (skipNextPreferencesPushRef.current) {
+      skipNextPreferencesPushRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDeviceSyncStatus('syncing');
+      putPreferences(toSyncedPreferences(preferences))
+        .then(() => {
+          setDeviceSyncStatus('synced');
+          setLastSyncedAt(Date.now());
+        })
+        .catch(() => setDeviceSyncStatus('error'));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [hydrateReady, preferences]);
+
+  useEffect(() => {
+    if (!hydrateReady) return;
+    if (skipNextLibraryPushRef.current) {
+      skipNextLibraryPushRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDeviceSyncStatus('syncing');
+      putLibrary(documents, activeDocumentId)
+        .then(() => {
+          setDeviceSyncStatus('synced');
+          setLastSyncedAt(Date.now());
+        })
+        .catch(() => setDeviceSyncStatus('error'));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [hydrateReady, documents, activeDocumentId]);
 
   useEffect(() => () => {
     flushProgress();
@@ -233,23 +352,48 @@ export default function AppV2() {
   useEffect(() => {
     let active = true;
     setDocumentError(null);
-    setZipPages(null);
+    setBookStream(null);
     setPairedPdf(null);
     setSource(null);
     setPageContent({ pageIndex: -1, blocks: [] });
     setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
+    streamAnchorRef.current = {
+      streamIndex: Math.max(0, activeDocument?.activeBlockIndex ?? 0),
+      wordIndex: Math.max(0, activeDocument?.activeWordIndex ?? 0),
+    };
 
     if (!activeDocument) return () => { active = false; };
 
     setDocumentLoading(true);
     Promise.all([
-      loadSourceFile(activeDocument),
-      activeDocument.kind === 'markdown-zip' ? loadPairedPdf(activeDocument.id) : Promise.resolve(null),
+      loadSourceFile(activeDocument).then(async (local) => {
+        if (local) return local;
+        if (activeDocument.isSample) return null;
+        const remote = await downloadDocumentBlob(
+          activeDocument.id,
+          'source',
+          activeDocument.sourceName || `${activeDocument.name}.pdf`,
+        );
+        if (remote) await saveSourceFile(activeDocument.id, remote);
+        return remote;
+      }),
+      activeDocument.kind === 'markdown-zip'
+        ? loadPairedPdf(activeDocument.id).then(async (local) => {
+            if (local) return local;
+            const remote = await downloadDocumentBlob(
+              activeDocument.id,
+              'paired-pdf',
+              activeDocument.pairedPdfName || `${activeDocument.name}-original.pdf`,
+            );
+            if (remote) await savePairedPdf(activeDocument.id, remote);
+            return remote;
+          })
+        : Promise.resolve(null),
     ]).then(async ([loadedSource, loadedPair]) => {
       if (!active) return;
       if (!loadedSource) {
-        throw new Error('The original file is no longer available on this device.');
+        throw new Error('The original file is not available locally or on the PageEcho server yet.');
       }
 
       setSource(loadedSource);
@@ -258,12 +402,13 @@ export default function AppV2() {
         if (!(loadedSource instanceof File)) {
           throw new Error('This Markdown archive cannot be read from its stored source.');
         }
-        const pages = await extractMarkdownPages(loadedSource);
+        const stream = await loadMarkdownStream(loadedSource, activeDocument.name);
         if (!active) return;
-        setZipPages(pages);
-        if (pages.length !== activeDocument.totalPages) {
-          updateDocument(activeDocument.id, { totalPages: pages.length });
-        }
+        streamAnchorRef.current = {
+          streamIndex: 0,
+          wordIndex: 0,
+        };
+        setBookStream(stream);
       }
     }).catch((error) => {
       if (active) {
@@ -278,23 +423,130 @@ export default function AppV2() {
     };
   }, [activeDocument?.id, updateDocument]);
 
-  useEffect(() => {
-    if (!activeDocument || activeDocument.kind !== 'markdown-zip' || !zipPages) return;
-    const nextPageIndex = clampPage(pageIndex, zipPages.length);
-    const markdown = zipPages[nextPageIndex];
-    if (markdown === undefined) return;
-    const prepared = prepareMarkdownPage(markdown, activeDocument.name);
-    setMarkdownBlocks(prepared.renderedBlocks);
-    setPageContent({ pageIndex: nextPageIndex, blocks: prepared.speakableBlocks });
+  const handleViewportPageCount = useCallback((totalPages: number) => {
+    if (!activeDocument || activeDocument.kind !== 'markdown-zip') return;
+    if (totalPages !== activeDocument.totalPages) {
+      updateDocument(activeDocument.id, { totalPages });
+    }
+  }, [activeDocument, updateDocument]);
 
-    const nextMarkdown = zipPages[nextPageIndex + 1];
-    setNextPageContent(nextMarkdown === undefined
+  const handleViewportRestore = useCallback((
+    nextPage: number,
+    localBlockIndex: number,
+    wordIndex: number,
+  ) => {
+    setPageIndex(nextPage);
+    setSavedBlockIndex(localBlockIndex);
+    setSavedWordIndex(wordIndex);
+  }, []);
+
+  const {
+    pages: viewportPages,
+    pageStarts,
+    ready: viewportReady,
+    peelOverflowFromPage,
+  } = useViewportBookPages({
+    stream: bookStream,
+    enabled: Boolean(activeDocument?.kind === 'markdown-zip' && bookStream),
+    fontScale: preferences.fontScale,
+    stageRef: readerStageRef,
+    pageBodyRef,
+    anchorRef: streamAnchorRef,
+    onPageCount: handleViewportPageCount,
+    onRestorePage: handleViewportRestore,
+  });
+
+  useEffect(() => {
+    pageStartsRef.current = pageStarts;
+  }, [pageStarts]);
+
+  const chapterIndex = useMemo(
+    () => (bookStream && bookStream.length > 0 ? buildChapterIndex(bookStream) : []),
+    [bookStream],
+  );
+
+  const locatedChapters = useMemo(() => {
+    if (chapterIndex.length === 0 || viewportPages.length === 0) return [];
+    return locateChaptersOnPages(chapterIndex, viewportPages);
+  }, [chapterIndex, viewportPages]);
+
+  const currentChapterIndex = useMemo(
+    () => findCurrentChapterIndex(locatedChapters, pageIndex),
+    [locatedChapters, pageIndex],
+  );
+
+  const currentChapterTitle = currentChapterIndex >= 0
+    ? locatedChapters[currentChapterIndex]?.title
+    : null;
+
+  // Always offer Contents for markdown books — even when detection finds nothing yet.
+  const canOpenChapters = activeDocument?.kind === 'markdown-zip';
+
+  useEffect(() => {
+    if (!activeDocument || activeDocument.kind !== 'markdown-zip' || !viewportReady) return;
+    const nextPageIndex = clampPage(pageIndex, viewportPages.length || 1);
+    const page = viewportPages[nextPageIndex] ?? [];
+    const blocks = streamPageToMarkdownBlocks(page);
+    setMarkdownBlocks(blocks);
+    setPageContent({
+      pageIndex: nextPageIndex,
+      blocks: blocks.map((block) => block.text),
+    });
+
+    const nextPage = viewportPages[nextPageIndex + 1];
+    setNextPageContent(nextPage === undefined
       ? { pageIndex: -1, blocks: [] }
       : {
           pageIndex: nextPageIndex + 1,
-          blocks: prepareMarkdownPage(nextMarkdown, activeDocument.name).speakableBlocks,
+          blocks: streamPageToMarkdownBlocks(nextPage).map((block) => block.text),
         });
-  }, [activeDocument?.id, activeDocument?.kind, activeDocument?.name, pageIndex, zipPages]);
+  }, [activeDocument?.id, activeDocument?.kind, pageIndex, viewportPages, viewportReady]);
+
+  // After paint: if live prose still overflows the band above the footer,
+  // peel enough trailing blocks onto the next page in one shot.
+  useLayoutEffect(() => {
+    const markdownBook = activeDocument?.kind === 'markdown-zip';
+    const preparing = documentLoading
+      || (markdownBook && !viewportReady)
+      || pageContent.pageIndex !== pageIndex;
+    if (!markdownBook || !viewportReady || preparing) return;
+    const body = pageBodyRef.current;
+    const prose = body?.querySelector('.pe-prose') as HTMLElement | null;
+    if (!body || !prose) return;
+
+    const styles = window.getComputedStyle(body);
+    const paddingY = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
+    const available = body.clientHeight - paddingY;
+    if (available < 80) return;
+    if (prose.scrollHeight <= available + 2) return;
+
+    const page = viewportPages[pageIndex] ?? [];
+    if (page.length <= 1) return;
+
+    // Walk from the end until the remaining stack fits the body band.
+    let removeCount = 1;
+    while (removeCount < page.length) {
+      const keepUntil = page.length - removeCount - 1;
+      const first = prose.children[0] as HTMLElement | undefined;
+      const last = prose.children[keepUntil] as HTMLElement | undefined;
+      const height = first && last
+        ? Math.ceil((last.offsetTop + last.offsetHeight) - first.offsetTop)
+        : Number.POSITIVE_INFINITY;
+      if (height <= available) break;
+      removeCount += 1;
+    }
+
+    peelOverflowFromPage(pageIndex, removeCount);
+  }, [
+    activeDocument?.kind,
+    documentLoading,
+    viewportReady,
+    pageContent.pageIndex,
+    pageIndex,
+    markdownBlocks,
+    viewportPages,
+    peelOverflowFromPage,
+  ]);
 
   const changePage = useCallback((requestedPage: number, sourceOfChange: PageChangeSource) => {
     if (!activeDocument) return;
@@ -304,6 +556,10 @@ export default function AppV2() {
     setPageIndex(nextPage);
     setSavedBlockIndex(0);
     setSavedWordIndex(0);
+    streamAnchorRef.current = {
+      streamIndex: pageStartsRef.current[nextPage] ?? 0,
+      wordIndex: 0,
+    };
     setPageContent({ pageIndex: -1, blocks: [] });
     setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
@@ -313,74 +569,11 @@ export default function AppV2() {
       activeWordIndex: 0,
       updatedAt: Date.now(),
     });
-    syncEngineRef.current?.updateLocalProgress(nextPage, 0, 0, true);
-    if (sourceOfChange !== 'remote') setLastSyncedAt(Date.now());
   }, [activeDocument, flushProgress, tts.stop, updateDocument]);
 
   useEffect(() => {
     pageChangeRef.current = changePage;
   }, [changePage]);
-
-  useEffect(() => {
-    remoteProgressRef.current = (state) => {
-      if (!activeDocument || state.document_id !== activeDocument.id) return;
-      tts.stop();
-      flushProgress();
-      const remotePage = clampPage(state.page_index, activeDocument.totalPages);
-      setPageIndex(remotePage);
-      setSavedBlockIndex(state.block_index);
-      setSavedWordIndex(state.word_index);
-      setPageContent({ pageIndex: -1, blocks: [] });
-      setNextPageContent({ pageIndex: -1, blocks: [] });
-      updateDocument(activeDocument.id, {
-        currentPageIndex: remotePage,
-        activeBlockIndex: state.block_index,
-        activeWordIndex: state.word_index,
-        updatedAt: Date.now(),
-      });
-      setLastSyncedAt(Date.now());
-    };
-  }, [activeDocument, flushProgress, tts.stop, updateDocument]);
-
-  useEffect(() => {
-    syncEngineRef.current?.stop();
-    syncEngineRef.current = null;
-
-    if (!activeDocument || !preferences.syncEnabled) {
-      setSyncStatus('disabled');
-      return;
-    }
-
-    if (!window.nostr) {
-      setSyncStatus('needs-signer');
-      return;
-    }
-
-    let cancelled = false;
-    setSyncStatus('connecting');
-    window.nostr.getPublicKey().then((pubkey) => {
-      if (cancelled || !window.nostr) return;
-      const engine = new BimodalSyncEngine({
-        relayUrl: preferences.relayUrl,
-        userPubkey: pubkey,
-        signEvent: (event) => window.nostr!.signEvent(event),
-        onRemoteProgressApplied: (state) => remoteProgressRef.current(state),
-        onConnectionStatusChange: (status) => {
-          if (!cancelled) setSyncStatus(status);
-        },
-      });
-      syncEngineRef.current = engine;
-      return engine.start(activeDocument.id);
-    }).catch(() => {
-      if (!cancelled) setSyncStatus('error');
-    });
-
-    return () => {
-      cancelled = true;
-      syncEngineRef.current?.stop();
-      syncEngineRef.current = null;
-    };
-  }, [activeDocument?.id, preferences.relayUrl, preferences.syncEnabled]);
 
   const selectDocument = useCallback((document: LibraryDocument) => {
     tts.stop();
@@ -390,6 +583,7 @@ export default function AppV2() {
     setSavedBlockIndex(document.activeBlockIndex);
     setSavedWordIndex(document.activeWordIndex);
     setReaderView('reading');
+    setLibraryOpen(false);
   }, [flushProgress, tts.stop]);
 
   const importFiles = useCallback(async (files: File[]) => {
@@ -404,10 +598,12 @@ export default function AppV2() {
         }
         let totalPages = 1;
         if (lowerName.endsWith('.zip')) {
-          totalPages = (await extractMarkdownPages(file)).length;
+          const provisionalName = file.name.replace(/\.(pdf|zip)$/i, '');
+          totalPages = (await loadMarkdownBook(file, provisionalName)).length;
         }
         const document = createLibraryDocument(file, totalPages);
         await saveSourceFile(document.id, file);
+        await uploadDocumentBlob(document.id, 'source', file);
         imported.push(document);
       }
 
@@ -427,8 +623,24 @@ export default function AppV2() {
     }
   }, []);
 
+  const importImprovedMmm = useCallback(async () => {
+    setImportError(null);
+    try {
+      const response = await fetch('/samples/mythical-man-month.zip?v=8');
+      if (!response.ok) {
+        throw new Error('Could not load the improved Mythical Man-Month sample.');
+      }
+      const blob = await response.blob();
+      const file = new File([blob], 'The Mythical Man-Month.zip', { type: 'application/zip' });
+      await importFiles([file]);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : 'Sample import failed.');
+      setImportOpen(true);
+    }
+  }, [importFiles]);
+
   const deleteDocument = useCallback(async (document: LibraryDocument) => {
-    if (!window.confirm(`Remove “${document.name}” and its local files from this device?`)) return;
+    if (!window.confirm(`Remove “${document.name}” from this device and the PageEcho server?`)) return;
     if (activeDocumentId === document.id) {
       tts.stop();
       setActiveDocumentId(null);
@@ -437,6 +649,11 @@ export default function AppV2() {
     }
     setDocuments((current) => current.filter((item) => item.id !== document.id));
     await deleteDocumentFiles(document.id);
+    try {
+      await deleteSyncedDocument(document.id);
+    } catch {
+      setDeviceSyncStatus('error');
+    }
   }, [activeDocumentId, tts.stop]);
 
   const pairOriginalPdf = useCallback(async (file: File) => {
@@ -444,6 +661,7 @@ export default function AppV2() {
     setPairBusy(true);
     try {
       await savePairedPdf(activeDocument.id, file);
+      await uploadDocumentBlob(activeDocument.id, 'paired-pdf', file);
       setPairedPdf(file);
       updateDocument(activeDocument.id, { pairedPdfName: file.name, updatedAt: Date.now() });
       setReaderView('parallel');
@@ -451,6 +669,40 @@ export default function AppV2() {
       setPairBusy(false);
     }
   }, [activeDocument, updateDocument]);
+
+  const handleSaveSecrets = useCallback(async (input: {
+    inworldApiKey?: string;
+    fishAudioApiKey?: string;
+    clearInworld?: boolean;
+    clearFishAudio?: boolean;
+  }) => {
+    const status = await putSecrets(input);
+    setInworldServerStatus(status.inworldConfigured ? 'ready' : 'missing-credential');
+    setFishAudioServerStatus(status.fishAudioConfigured ? 'ready' : 'missing-credential');
+    setDeviceSyncStatus('synced');
+    setLastSyncedAt(Date.now());
+  }, []);
+
+  const handleHorizontalSwipe = useCallback((direction: 'prev' | 'next') => {
+    if (!activeDocument) return;
+    changePage(pageIndex + (direction === 'next' ? 1 : -1), 'manual');
+  }, [activeDocument, changePage, pageIndex]);
+
+  const {
+    focusActive,
+    chromeVisible,
+    revealChrome,
+    onStageTouchStart,
+    onStageTouchEnd,
+    onChromePointerDown,
+  } = useMobileFocusChrome({
+    enabled: Boolean(activeDocument),
+    documentId: activeDocumentId,
+    isPlaying: tts.isPlaying,
+    isPaused: tts.isPaused,
+    overlaysOpen: libraryOpen || settingsOpen || importOpen || chaptersOpen,
+    onHorizontalSwipe: handleHorizontalSwipe,
+  });
 
   const handlePdfTextExtracted = useCallback((blocks: string[]) => {
     setPageContent({ pageIndex, blocks });
@@ -472,38 +724,75 @@ export default function AppV2() {
     updateDocument(activeDocument.id, { pairedPdfPages: totalPages });
   }, [activeDocument, updateDocument]);
 
-  const handlePause = () => {
+  const handlePause = useCallback(() => {
     tts.pause();
     flushProgress();
-  };
-  const handleStop = () => {
+  }, [flushProgress, tts.pause]);
+
+  const handleStop = useCallback(() => {
     tts.stop();
     flushProgress();
-    syncEngineRef.current?.updateLocalProgress(pageIndex, savedBlockIndex, savedWordIndex, true);
-  };
+  }, [flushProgress, tts.stop]);
+
+  const handleMediaPlay = useCallback(() => {
+    if (tts.isPaused) tts.resume();
+    else tts.play(savedBlockIndex, savedWordIndex);
+  }, [savedBlockIndex, savedWordIndex, tts.isPaused, tts.play, tts.resume]);
+
+  useMediaSession({
+    enabled: Boolean(activeDocument),
+    playbackState: toMediaSessionPlayback(tts.playbackState),
+    meta: {
+      title: activeDocument?.name || 'PageEcho',
+      artist: 'PageEcho',
+      album: activeDocument
+        ? `Page ${pageIndex + 1} of ${activeDocument.totalPages}`
+        : 'Reading',
+      artworkUrl: typeof window !== 'undefined'
+        ? `${window.location.origin}/icons/pageecho-512.png`
+        : '/icons/pageecho-512.png',
+    },
+    handlers: {
+      onPlay: handleMediaPlay,
+      onPause: handlePause,
+      onStop: handleStop,
+      onPrevious: () => changePage(pageIndex - 1, 'manual'),
+      onNext: () => changePage(pageIndex + 1, 'manual'),
+    },
+  });
 
   const displayBlockIndex = tts.isPlaying && tts.activeBlockIndex >= 0 ? tts.activeBlockIndex : savedBlockIndex;
   const displayWordIndex = tts.isPlaying && tts.activeWordIndex >= 0 ? tts.activeWordIndex : savedWordIndex;
   const progress = activeDocument
     ? calculateProgress(pageIndex, activeDocument.totalPages, displayWordIndex)
     : 0;
-  const hasSigner = typeof window !== 'undefined' && Boolean(window.nostr);
+
+  const isMarkdownBook = activeDocument?.kind === 'markdown-zip';
+  const pagePreparing = documentLoading
+    || (isMarkdownBook && !viewportReady)
+    || pageContent.pageIndex !== pageIndex;
 
   const renderTextPage = (compact = false) => (
     <article
-      className={`pe-reading-page ${compact ? 'is-compact' : ''}`}
+      className={[
+        'pe-reading-page',
+        compact ? 'is-compact' : '',
+        isMarkdownBook ? 'is-viewport-page' : '',
+      ].filter(Boolean).join(' ')}
       style={{ '--reader-scale': preferences.fontScale } as React.CSSProperties}
     >
       <header className="pe-page-header">
         <span>{activeDocument?.name}</span>
         <span>{String(pageIndex + 1).padStart(2, '0')} / {String(activeDocument?.totalPages ?? 1).padStart(2, '0')}</span>
       </header>
-      <div className="pe-page-body">
-        {documentLoading || pageContent.pageIndex !== pageIndex ? (
+      <div className="pe-page-body" ref={pageBodyRef}>
+        {pagePreparing ? (
           <div className="pe-reader-state">
-            <LoaderCircle className="pe-spin" size={25} />
+            <span className="pe-spin" aria-hidden="true">
+              <LoaderCircle size={25} />
+            </span>
             <strong>Preparing page {pageIndex + 1}</strong>
-            <span>Extracting the reading layer…</span>
+            <span>Fitting the reading layer to your screen…</span>
           </div>
         ) : pageContent.blocks.some((block) => block.trim()) || markdownBlocks.length ? (
           <ReaderWords
@@ -530,8 +819,15 @@ export default function AppV2() {
   );
 
   return (
-    <div className="pe-app" data-theme={preferences.appearance}>
-      <header className="pe-topbar">
+    <div
+      className={[
+        'pe-app',
+        focusActive ? 'is-focus-reading' : '',
+        focusActive && chromeVisible ? 'is-chrome-visible' : '',
+      ].filter(Boolean).join(' ')}
+      data-theme={preferences.appearance}
+    >
+      <header className="pe-topbar" onPointerDown={onChromePointerDown}>
         <div className="pe-brand">
           <button className="pe-icon-button pe-mobile-only" onClick={() => setLibraryOpen((open) => !open)} aria-label="Toggle library">
             <Menu size={19} />
@@ -543,9 +839,9 @@ export default function AppV2() {
           </div>
         </div>
         <div className="pe-topbar-actions">
-          <button className={`pe-sync-pill is-${syncStatus}`} onClick={() => setSettingsOpen(true)}>
-            {syncStatus === 'connected' ? <Wifi size={14} /> : <WifiOff size={14} />}
-            <span>{syncStatus === 'connected' ? 'Progress synced' : syncStatus.replace('-', ' ')}</span>
+          <button className={`pe-sync-pill is-${deviceSyncStatus === 'synced' ? 'connected' : deviceSyncStatus}`} onClick={() => setSettingsOpen(true)}>
+            {deviceSyncStatus === 'synced' ? <Wifi size={14} /> : <WifiOff size={14} />}
+            <span>{deviceSyncStatus === 'synced' ? 'Devices synced' : deviceSyncStatus}</span>
           </button>
           <button
             className="pe-icon-button"
@@ -582,13 +878,16 @@ export default function AppV2() {
         <main className="pe-main">
           {activeDocument ? (
             <>
-              <section className="pe-reader-toolbar">
+              <section className="pe-reader-toolbar" onPointerDown={onChromePointerDown}>
                 <div className="pe-reader-title">
                   <button className="pe-icon-button pe-mobile-only" onClick={() => setLibraryOpen(true)} aria-label="Open library">
                     <Library size={18} />
                   </button>
                   <div>
-                    <span className="pe-eyebrow">{activeDocument.kind === 'pdf' ? 'PDF document' : 'Markdown edition'}</span>
+                    <span className="pe-eyebrow">
+                      {currentChapterTitle
+                        || (activeDocument.kind === 'pdf' ? 'PDF document' : 'Markdown edition')}
+                    </span>
                     <h1>{activeDocument.name}</h1>
                   </div>
                 </div>
@@ -631,7 +930,7 @@ export default function AppV2() {
                 </div>
               </section>
 
-              <section className="pe-reader-nav">
+              <section className="pe-reader-nav" onPointerDown={onChromePointerDown}>
                 <div className="pe-page-controls">
                   <button className="pe-icon-button" onClick={() => changePage(pageIndex - 1, 'manual')} disabled={pageIndex === 0} aria-label="Previous page">
                     <ChevronLeft size={18} />
@@ -651,6 +950,17 @@ export default function AppV2() {
                     <ChevronRight size={18} />
                   </button>
                 </div>
+                {canOpenChapters && (
+                  <button
+                    type="button"
+                    className="pe-button pe-button-secondary pe-chapters-trigger"
+                    onClick={() => setChaptersOpen(true)}
+                    aria-label="Open chapter list"
+                  >
+                    <ListTree size={16} />
+                    <span>Contents</span>
+                  </button>
+                )}
                 <div className="pe-zoom-controls">
                   <button
                     className="pe-icon-button"
@@ -670,7 +980,30 @@ export default function AppV2() {
                 </div>
               </section>
 
-              <section className="pe-reader-stage">
+              <section
+                className="pe-reader-stage"
+                ref={readerStageRef}
+                onTouchStart={onStageTouchStart}
+                onTouchEnd={onStageTouchEnd}
+              >
+                {focusActive && !chromeVisible && (
+                  <>
+                    <button
+                      type="button"
+                      className="pe-focus-edge pe-focus-edge-top"
+                      aria-label="Show reader controls"
+                      onClick={revealChrome}
+                    />
+                    <button
+                      type="button"
+                      className="pe-focus-edge pe-focus-edge-bottom"
+                      aria-label="Show playback controls"
+                      onClick={revealChrome}
+                    >
+                      <span />
+                    </button>
+                  </>
+                )}
                 {documentError ? (
                   <div className="pe-fatal-state">
                     <FileText size={32} />
@@ -757,14 +1090,18 @@ export default function AppV2() {
                 )}
               </section>
 
-              <section className="pe-playback-dock" aria-label="Playback controls">
+              <section
+                className="pe-playback-dock"
+                aria-label="Playback controls"
+                onPointerDown={onChromePointerDown}
+              >
                 <div className="pe-playback-progress">
                   <span style={{ width: `${progress}%` }} />
                 </div>
                 <div className="pe-playback-info">
                   <span className="pe-audio-art"><Volume2 size={18} /></span>
                   <div>
-                    <strong>{preferences.inworldEnabled ? preferences.inworldVoiceId : 'System voice'}</strong>
+                    <strong>{preferences.fishAudioEnabled ? `Fish Audio (${preferences.fishAudioVoiceId})` : preferences.inworldEnabled ? `Inworld (${preferences.inworldVoiceId})` : 'System voice'}</strong>
                     <span>
                       {tts.lastError
                         ? 'Neural voice unavailable · using system fallback'
@@ -787,7 +1124,11 @@ export default function AppV2() {
                   ) : (
                     <button
                       className="pe-play-button"
-                      onClick={() => tts.isPaused ? tts.resume() : tts.play(savedBlockIndex, savedWordIndex)}
+                      onClick={() => {
+                        revealChrome();
+                        if (tts.isPaused) tts.resume();
+                        else tts.play(savedBlockIndex, savedWordIndex);
+                      }}
                       disabled={documentLoading || pageContent.pageIndex !== pageIndex}
                       aria-label={tts.isPaused ? 'Resume' : 'Play'}
                     >
@@ -800,6 +1141,16 @@ export default function AppV2() {
                   <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1, 'manual')} disabled={pageIndex + 1 >= activeDocument.totalPages} aria-label="Next page">
                     <ArrowRight size={17} />
                   </button>
+                  {canOpenChapters && (
+                    <button
+                      className="pe-icon-button pe-chapters-trigger"
+                      onClick={() => setChaptersOpen(true)}
+                      aria-label="Open chapter list"
+                      title="Contents"
+                    >
+                      <ListTree size={17} />
+                    </button>
+                  )}
                 </div>
                 <div className="pe-playback-settings">
                   <button
@@ -844,7 +1195,14 @@ export default function AppV2() {
                   <button className="pe-button pe-button-primary" onClick={() => setImportOpen(true)}>
                     <Plus size={17} /> Add your first book
                   </button>
-                  <a className="pe-button pe-button-secondary" href="/">View the original prototype</a>
+                  <button
+                    className="pe-button pe-button-secondary"
+                    onClick={() => { void importImprovedMmm(); }}
+                    disabled={importBusy}
+                  >
+                    {importBusy ? <LoaderCircle className="pe-spin" size={17} /> : <BookOpen size={17} />}
+                    Try Mythical Man-Month
+                  </button>
                 </div>
               </div>
               <div className="pe-welcome-visual" aria-hidden="true">
@@ -871,14 +1229,28 @@ export default function AppV2() {
         error={importError}
         onClose={() => setImportOpen(false)}
         onImport={importFiles}
+        onImportSample={() => { void importImprovedMmm(); }}
+      />
+      <ChapterListPanel
+        open={chaptersOpen}
+        bookTitle={activeDocument?.name || 'Book'}
+        chapters={locatedChapters}
+        currentChapterIndex={currentChapterIndex}
+        onJump={(nextPage) => {
+          changePage(nextPage, 'manual');
+          setChaptersOpen(false);
+          revealChrome();
+        }}
+        onClose={() => setChaptersOpen(false)}
       />
       <SettingsPanel
         open={settingsOpen}
         preferences={preferences}
-        ttsServerStatus={ttsServerStatus}
-        syncStatus={syncStatus}
-        hasNostrSigner={hasSigner}
+        inworldServerStatus={inworldServerStatus}
+        fishAudioServerStatus={fishAudioServerStatus}
+        deviceSyncStatus={deviceSyncStatus}
         onChange={setPreferences}
+        onSaveSecrets={handleSaveSecrets}
         onClose={() => setSettingsOpen(false)}
       />
     </div>

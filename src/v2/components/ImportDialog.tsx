@@ -7,9 +7,10 @@ interface ImportDialogProps {
   error: string | null;
   onClose: () => void;
   onImport: (files: File[]) => void;
+  onImportSample?: () => void;
 }
 
-export function ImportDialog({ open, busy, error, onClose, onImport }: ImportDialogProps) {
+export function ImportDialog({ open, busy, error, onClose, onImport, onImportSample }: ImportDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   if (!open) return null;
@@ -67,6 +68,18 @@ export function ImportDialog({ open, busy, error, onClose, onImport }: ImportDia
           <div><FileText size={18} /><span><strong>PDF</strong>Original layout with extracted text</span></div>
           <div><FileArchive size={18} /><span><strong>Markdown ZIP</strong>One numbered .md file per page</span></div>
         </div>
+
+        {onImportSample && (
+          <button
+            type="button"
+            className="pe-button pe-button-secondary"
+            style={{ width: '100%' }}
+            onClick={onImportSample}
+            disabled={busy}
+          >
+            Try improved Mythical Man-Month sample
+          </button>
+        )}
 
         {error && <p className="pe-form-error" role="alert">{error}</p>}
         <p className="pe-dialog-note">Files stay in your browser’s local database. You can pair an original PDF after importing a Markdown book.</p>

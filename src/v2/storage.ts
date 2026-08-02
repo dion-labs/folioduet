@@ -12,8 +12,10 @@ const defaultPreferences: ReaderPreferences = {
   volume: 1,
   inworldEnabled: false,
   inworldVoiceId: 'Ashley',
-  relayUrl: 'wss://relay.damus.io',
-  syncEnabled: false,
+  inworldApiKey: '',
+  fishAudioEnabled: false,
+  fishAudioVoiceId: '933563129e564b19a115bedd57b7406a',
+  fishAudioApiKey: '',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -90,28 +92,38 @@ export function loadPreferences(): ReaderPreferences {
         volume: Number(localStorage.getItem('bimodal-tts-volume')) || 1,
         inworldEnabled: localStorage.getItem('bimodal-inworld-enabled') === 'true',
         inworldVoiceId: localStorage.getItem('bimodal-inworld-voiceid') || 'Ashley',
-        relayUrl: localStorage.getItem('bimodal-relay-url') || defaultPreferences.relayUrl,
+        fishAudioEnabled: localStorage.getItem('bimodal-fishaudio-enabled') === 'true',
+        fishAudioVoiceId: localStorage.getItem('bimodal-fishaudio-voiceid') || defaultPreferences.fishAudioVoiceId,
       };
     }
 
     const parsed: unknown = JSON.parse(saved);
     if (!isRecord(parsed)) return defaultPreferences;
 
-    const { inworldApiKey: _legacyBrowserCredential, ...safeParsed } = parsed;
     return {
       ...defaultPreferences,
-      ...safeParsed,
-      fontScale: asNumber(safeParsed.fontScale, 1),
-      playbackRate: asNumber(safeParsed.playbackRate, 1),
-      volume: asNumber(safeParsed.volume, 1),
-    } as ReaderPreferences;
+      appearance: parsed.appearance === 'light' ? 'light' : 'dark',
+      fontScale: asNumber(parsed.fontScale, 1),
+      playbackRate: asNumber(parsed.playbackRate, 1),
+      volume: asNumber(parsed.volume, 1),
+      inworldEnabled: parsed.inworldEnabled === true,
+      inworldVoiceId: typeof parsed.inworldVoiceId === 'string' ? parsed.inworldVoiceId : defaultPreferences.inworldVoiceId,
+      inworldApiKey: '',
+      fishAudioEnabled: parsed.fishAudioEnabled === true,
+      fishAudioVoiceId:
+        typeof parsed.fishAudioVoiceId === 'string'
+          ? parsed.fishAudioVoiceId
+          : defaultPreferences.fishAudioVoiceId,
+      fishAudioApiKey: '',
+    };
   } catch {
     return defaultPreferences;
   }
 }
 
 export function savePreferences(preferences: ReaderPreferences): void {
-  localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+  const { inworldApiKey: _i, fishAudioApiKey: _f, ...safe } = preferences;
+  localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ ...safe, inworldApiKey: '', fishAudioApiKey: '' }));
 }
 
 export async function saveSourceFile(documentId: string, file: File): Promise<void> {
@@ -144,3 +156,5 @@ export function createDocumentId(): string {
   }
   return `document-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
+
+export { defaultPreferences };

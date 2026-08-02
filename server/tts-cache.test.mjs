@@ -161,4 +161,56 @@ describe('TtsCache', () => {
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it('supports Fish Audio synthesis and caching', async () => {
+    async function* makeBody() {
+      const events = [
+        'data: {"audio_base64": "ZmFrZS1tcDMtYXVkaW8=", "chunk_seq": 0, "chunk_audio_offset_sec": 0.0, "alignment": {"segments": [{"text": "A", "start": 0, "end": 0.08}, {"text": "persistent", "start": 0.1, "end": 0.35}]}}\n\n',
+      ];
+      for (const event of events) {
+        yield new TextEncoder().encode(event);
+      }
+    }
+
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: makeBody(),
+    });
+
+    const { cache } = await createTemporaryCache({
+      fishAudioApiKey: 'fish-credential',
+      fetchImpl,
+      now: () => 3000,
+    });
+
+    const fishRequest = {
+      provider: 'fish-audio',
+      text: 'A persistent sentence.',
+      voiceId: 'Ashley',
+      modelId: 's2.1-pro',
+    };
+
+    const miss = await cache.synthesize(fishRequest);
+    expect(miss.cacheStatus).toBe('miss');
+    expect(miss.timestampInfo).toEqual({
+      wordAlignment: {
+        words: ['A', 'persistent'],
+        wordStartTimeSeconds: [0, 0.1],
+        wordEndTimeSeconds: [0.08, 0.35],
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+
+    const hit = await cache.synthesize(fishRequest);
+    expect(hit.cacheStatus).toBe('hit');
+    expect(hit.timestampInfo).toEqual({
+      wordAlignment: {
+        words: ['A', 'persistent'],
+        wordStartTimeSeconds: [0, 0.1],
+        wordEndTimeSeconds: [0.08, 0.35],
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

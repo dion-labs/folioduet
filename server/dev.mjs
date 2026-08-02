@@ -1,44 +1,32 @@
-import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const projectDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const viteEntry = path.join(projectDirectory, 'node_modules', 'vite', 'bin', 'vite.js');
-const children = [
-  spawn(process.execPath, [path.join(projectDirectory, 'server', 'index.mjs')], {
-    cwd: projectDirectory,
-    env: process.env,
-    stdio: 'inherit',
-  }),
-  spawn(process.execPath, [viteEntry], {
-    cwd: projectDirectory,
-    env: process.env,
-    stdio: 'inherit',
-  }),
-];
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+
+// Run the unified single process dev server on port 5173.
+// Host defaults to 0.0.0.0 in startPageEchoServer({ isDev: true }) so
+// Tailscale / LAN clients (phone) can reach it unless PAGEECHO_SERVER_HOST is set.
+process.env.NODE_ENV = 'development';
+if (!process.env.PAGEECHO_SERVER_PORT) {
+  process.env.PAGEECHO_SERVER_PORT = '5173';
+}
+
+const { startPageEchoServer } = await import(path.join(serverDir, 'index.mjs'));
+
+const runtime = await startPageEchoServer({ isDev: true });
 
 let stopping = false;
-function stop(exitCode = 0) {
+async function stop() {
   if (stopping) return;
   stopping = true;
-  for (const child of children) {
-    if (!child.killed) child.kill('SIGTERM');
+  console.log('[PageEcho dev] Shutting down unified dev server...');
+  try {
+    await runtime.shutdown();
+  } catch (error) {
+    console.error('[PageEcho dev] Error during shutdown:', error);
   }
-  setTimeout(() => process.exit(exitCode), 250);
+  process.exit(0);
 }
 
-for (const child of children) {
-  child.on('error', (error) => {
-    console.error('[PageEcho dev]', error);
-    stop(1);
-  });
-  child.on('exit', (code, signal) => {
-    if (!stopping) {
-      console.error(`[PageEcho dev] A process exited (${signal || code}).`);
-      stop(code || 1);
-    }
-  });
-}
-
-process.on('SIGINT', () => stop(0));
-process.on('SIGTERM', () => stop(0));
+process.on('SIGINT', stop);
+process.on('SIGTERM', stop);

@@ -4,6 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TtsCache, TtsCacheError } from './tts-cache.mjs';
+import { SyncStore } from './sync-store.mjs';
 
 const serverDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectDirectory = path.resolve(serverDirectory, '..');
@@ -39,7 +40,7 @@ function sendJson(response, statusCode, value, extraHeaders = {}) {
   response.end(body);
 }
 
-async function readJsonBody(request, maxBytes = 32 * 1024) {
+async function readBodyBuffer(request, maxBytes = 32 * 1024) {
   const chunks = [];
   let receivedBytes = 0;
   for await (const chunk of request) {
@@ -49,11 +50,24 @@ async function readJsonBody(request, maxBytes = 32 * 1024) {
     }
     chunks.push(chunk);
   }
+  return Buffer.concat(chunks);
+}
+
+async function readJsonBody(request, maxBytes = 32 * 1024) {
+  const buffer = await readBodyBuffer(request, maxBytes);
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return JSON.parse(buffer.toString('utf8'));
   } catch {
     throw new TtsCacheError('Request body must be valid JSON.', 400, 'INVALID_JSON');
   }
+}
+
+function httpError(error) {
+  if (error instanceof TtsCacheError) return error;
+  if (error && typeof error.statusCode === 'number') {
+    return new TtsCacheError(error.message, error.statusCode, error.code || 'SYNC_ERROR');
+  }
+  return error;
 }
 
 const mimeTypes = new Map([
@@ -68,10 +82,8 @@ const mimeTypes = new Map([
 
 async function sendStaticFile(response, distDirectory, requestPath) {
   let relativePath;
-  if (requestPath === '/') {
+  if (requestPath === '/' || requestPath === '/v2' || requestPath === '/v2/') {
     relativePath = 'index.html';
-  } else if (requestPath === '/v2/') {
-    relativePath = path.join('v2', 'index.html');
   } else {
     relativePath = requestPath.replace(/^\/+/, '');
   }
@@ -84,9 +96,7 @@ async function sendStaticFile(response, distDirectory, requestPath) {
     const fileStat = await stat(filePath);
     if (!fileStat.isFile()) return false;
   } catch {
-    const fallback = requestPath.startsWith('/v2/')
-      ? path.join(distDirectory, 'v2', 'index.html')
-      : path.join(distDirectory, 'index.html');
+    const fallback = path.join(distDirectory, 'index.html');
     filePath = path.resolve(fallback);
     try {
       const fallbackStat = await stat(filePath);
@@ -105,7 +115,16 @@ async function sendStaticFile(response, distDirectory, requestPath) {
   return true;
 }
 
-export function createPageEchoServer({ cache, distDirectory }) {
+export function createPageEchoServer({
+  cache,
+  syncStore,
+  distDirectory,
+  viteDevServer,
+  getViteDevServer,
+}) {
+  const resolveViteDevServer = () =>
+    (typeof getViteDevServer === 'function' ? getViteDevServer() : null) || viteDevServer || null;
+
   return createServer(async (request, response) => {
     const requestUrl = new URL(request.url || '/', 'http://localhost');
     try {
@@ -113,6 +132,7 @@ export function createPageEchoServer({ cache, distDirectory }) {
         sendJson(response, 200, {
           ok: true,
           inworldConfigured: cache.isConfigured,
+          fishAudioConfigured: cache.isFishAudioConfigured,
         });
         return;
       }
@@ -124,7 +144,12 @@ export function createPageEchoServer({ cache, distDirectory }) {
 
       if (request.method === 'POST' && requestUrl.pathname === '/api/tts/synthesize') {
         const input = await readJsonBody(request);
-        const result = await cache.synthesize(input);
+        // Prefer server-persisted credentials; ignore client-supplied keys once configured.
+        const result = await cache.synthesize({
+          ...input,
+          apiKey: cache.isConfigured ? undefined : input.apiKey,
+          fishAudioApiKey: cache.isFishAudioConfigured ? undefined : input.fishAudioApiKey,
+        });
         sendJson(
           response,
           200,
@@ -139,8 +164,120 @@ export function createPageEchoServer({ cache, distDirectory }) {
         return;
       }
 
+      if (syncStore) {
+        if (request.method === 'GET' && requestUrl.pathname === '/api/sync/bootstrap') {
+          sendJson(response, 200, await syncStore.bootstrap());
+          return;
+        }
+
+        if (request.method === 'GET' && requestUrl.pathname === '/api/sync/preferences') {
+          sendJson(response, 200, await syncStore.getPreferences());
+          return;
+        }
+
+        if (request.method === 'PUT' && requestUrl.pathname === '/api/sync/preferences') {
+          const input = await readJsonBody(request);
+          sendJson(response, 200, await syncStore.setPreferences(input));
+          return;
+        }
+
+        if (request.method === 'GET' && requestUrl.pathname === '/api/sync/library') {
+          sendJson(response, 200, {
+            documents: await syncStore.getLibrary(),
+            activeDocumentId: await syncStore.getActiveDocumentId(),
+          });
+          return;
+        }
+
+        if (request.method === 'PUT' && requestUrl.pathname === '/api/sync/library') {
+          const input = await readJsonBody(request, 2 * 1024 * 1024);
+          const saved = await syncStore.setLibrary(input.documents);
+          const activeDocumentId = Object.prototype.hasOwnProperty.call(input, 'activeDocumentId')
+            ? await syncStore.setActiveDocumentId(input.activeDocumentId)
+            : await syncStore.getActiveDocumentId();
+          sendJson(response, 200, { ...saved, activeDocumentId });
+          return;
+        }
+
+        if (request.method === 'GET' && requestUrl.pathname === '/api/sync/secrets') {
+          sendJson(response, 200, await syncStore.getSecretsStatus());
+          return;
+        }
+
+        if (request.method === 'PUT' && requestUrl.pathname === '/api/sync/secrets') {
+          const input = await readJsonBody(request);
+          await syncStore.setSecrets(input);
+          const values = await syncStore.getSecretValues();
+          cache.setCredentials({
+            inworldApiKey: values.inworldApiKey,
+            fishAudioApiKey: values.fishAudioApiKey,
+          });
+          // Env fallbacks still win when UI clears a key that was only env-provided.
+          if (!values.inworldApiKey && process.env.INWORLD_API_KEY) {
+            cache.setCredentials({ inworldApiKey: process.env.INWORLD_API_KEY });
+          }
+          if (!values.fishAudioApiKey && process.env.FISH_AUDIO_API_KEY) {
+            cache.setCredentials({ fishAudioApiKey: process.env.FISH_AUDIO_API_KEY });
+          }
+          sendJson(response, 200, {
+            inworldConfigured: cache.isConfigured,
+            fishAudioConfigured: cache.isFishAudioConfigured,
+          });
+          return;
+        }
+
+        const documentBlobMatch = requestUrl.pathname.match(
+          /^\/api\/sync\/documents\/([^/]+)\/(source|paired-pdf)$/,
+        );
+        if (documentBlobMatch) {
+          const documentId = decodeURIComponent(documentBlobMatch[1]);
+          const kind = documentBlobMatch[2];
+
+          if (request.method === 'GET') {
+            const blob = await syncStore.getDocumentBlob(documentId, kind);
+            if (!blob) {
+              sendJson(response, 404, { error: 'NOT_FOUND', message: 'Document blob not found.' });
+              return;
+            }
+            response.writeHead(200, {
+              'Content-Type': blob.contentType || 'application/octet-stream',
+              'Content-Length': blob.buffer.length,
+              'Content-Disposition': `attachment; filename="${encodeURIComponent(blob.fileName || kind)}"`,
+              'Cache-Control': 'no-store',
+            });
+            response.end(blob.buffer);
+            return;
+          }
+
+          if (request.method === 'PUT') {
+            const buffer = await readBodyBuffer(request, 80 * 1024 * 1024);
+            const fileName = requestUrl.searchParams.get('fileName') || kind;
+            const contentType = request.headers['content-type'] || 'application/octet-stream';
+            sendJson(
+              response,
+              200,
+              await syncStore.saveDocumentBlob(documentId, kind, buffer, { fileName, contentType }),
+            );
+            return;
+          }
+        }
+
+        const documentMatch = requestUrl.pathname.match(/^\/api\/sync\/documents\/([^/]+)$/);
+        if (documentMatch && request.method === 'DELETE') {
+          const documentId = decodeURIComponent(documentMatch[1]);
+          sendJson(response, 200, await syncStore.deleteDocument(documentId));
+          return;
+        }
+      }
+
       if (requestUrl.pathname.startsWith('/api/')) {
         sendJson(response, 404, { error: 'NOT_FOUND', message: 'API route not found.' });
+        return;
+      }
+
+      const activeViteDevServer = resolveViteDevServer();
+      if (activeViteDevServer) {
+        activeViteDevServer.middlewares(request, response);
         return;
       }
 
@@ -149,8 +286,8 @@ export function createPageEchoServer({ cache, distDirectory }) {
         return;
       }
 
-      if (requestUrl.pathname === '/v2') {
-        response.writeHead(307, { Location: '/v2/' });
+      if (requestUrl.pathname === '/v2' || requestUrl.pathname === '/v2/') {
+        response.writeHead(301, { Location: '/' });
         response.end();
         return;
       }
@@ -162,44 +299,83 @@ export function createPageEchoServer({ cache, distDirectory }) {
         });
       }
     } catch (error) {
-      const statusCode = error instanceof TtsCacheError ? error.statusCode : 500;
-      const code = error instanceof TtsCacheError ? error.code : 'INTERNAL_ERROR';
-      const message = error instanceof Error ? error.message : 'Unexpected server error.';
-      if (statusCode >= 500) console.error('[PageEcho server]', error);
+      const normalized = httpError(error);
+      const statusCode = normalized instanceof TtsCacheError ? normalized.statusCode : 500;
+      const code = normalized instanceof TtsCacheError ? normalized.code : 'INTERNAL_ERROR';
+      const message = normalized instanceof Error ? normalized.message : 'Unexpected server error.';
+      if (statusCode >= 500) console.error('[PageEcho server]', normalized);
       sendJson(response, statusCode, { error: code, message });
     }
   });
 }
 
-export async function startPageEchoServer() {
-  const host = process.env.PAGEECHO_SERVER_HOST || '127.0.0.1';
+export async function startPageEchoServer({ isDev = false } = {}) {
+  // Dev defaults to all interfaces for Tailscale/phone access; prod stays loopback.
+  const host = process.env.PAGEECHO_SERVER_HOST || (isDev ? '0.0.0.0' : '127.0.0.1');
   const port = Number(process.env.PAGEECHO_SERVER_PORT || 8787);
   const dataDir = path.resolve(
     projectDirectory,
     process.env.PAGEECHO_DATA_DIR || 'data',
   );
   const distDirectory = path.join(projectDirectory, 'dist');
+  const syncStore = new SyncStore({ dataDir });
+  await syncStore.ready;
+
+  const storedSecrets = await syncStore.getSecretValues();
   const cache = new TtsCache({
     dataDir,
-    apiKey: process.env.INWORLD_API_KEY || '',
+    apiKey: storedSecrets.inworldApiKey || process.env.INWORLD_API_KEY || '',
+    fishAudioApiKey: storedSecrets.fishAudioApiKey || process.env.FISH_AUDIO_API_KEY || '',
   });
   await cache.ready;
-  const server = createPageEchoServer({ cache, distDirectory });
+
+  // Create the HTTP server first so Vite HMR can attach to the same listener
+  // (needed when opening the app from a phone over Tailscale / LAN).
+  let viteDevServer;
+  const server = createPageEchoServer({
+    cache,
+    syncStore,
+    distDirectory,
+    getViteDevServer: () => viteDevServer,
+  });
+
+  if (isDev) {
+    const { createServer: createViteServer } = await import('vite');
+    viteDevServer = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: { server },
+      },
+      appType: 'spa',
+    });
+  }
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
   });
 
+  const publicHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
   console.log(`[PageEcho] Server listening on http://${host}:${port}`);
+  if (host === '0.0.0.0' || host === '::') {
+    console.log(`[PageEcho] Local:     http://localhost:${port}`);
+    console.log(`[PageEcho] Tailscale: http://<your-tailscale-ip-or-magicdns>:${port}`);
+  } else {
+    console.log(`[PageEcho] Open http://${publicHost}:${port}`);
+  }
   console.log(`[PageEcho] Persistent TTS cache: ${dataDir}`);
   console.log(`[PageEcho] Inworld synthesis: ${cache.isConfigured ? 'configured' : 'not configured'}`);
+  console.log(`[PageEcho] Fish Audio synthesis: ${cache.isFishAudioConfigured ? 'configured' : 'not configured'}`);
 
   const shutdown = async () => {
     await new Promise((resolve) => server.close(resolve));
+    if (viteDevServer) {
+      await viteDevServer.close();
+    }
     await cache.close();
+    await syncStore.close();
   };
-  return { server, cache, shutdown };
+  return { server, cache, syncStore, shutdown };
 }
 
 const isMainModule = process.argv[1] &&

@@ -24,11 +24,10 @@ export interface PageContent {
   blocks: string[];
 }
 
-export type SyncStatus =
-  | 'disabled'
-  | 'needs-signer'
-  | 'connecting'
-  | 'connected'
+export type DeviceSyncStatus =
+  | 'idle'
+  | 'syncing'
+  | 'synced'
   | 'offline'
   | 'error';
 
@@ -45,6 +44,10 @@ export interface ReaderPreferences {
   volume: number;
   inworldEnabled: boolean;
   inworldVoiceId: string;
-  relayUrl: string;
-  syncEnabled: boolean;
+  /** @deprecated Kept empty; credentials live on the PageEcho server. */
+  inworldApiKey: string;
+  fishAudioEnabled: boolean;
+  fishAudioVoiceId: string;
+  /** @deprecated Kept empty; credentials live on the PageEcho server. */
+  fishAudioApiKey: string;
 }

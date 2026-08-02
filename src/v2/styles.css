@@ -619,10 +619,19 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   padding: 5px 20px;
   color: var(--pe-text-soft);
   background: color-mix(in srgb, var(--pe-bg) 86%, transparent);
   border-bottom: 1px solid var(--pe-border);
+}
+
+.pe-reader-nav .pe-chapters-trigger {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 11px;
 }
 
 .pe-page-controls,
@@ -669,6 +678,8 @@
   overflow: hidden;
   padding: 18px 24px 100px;
   position: relative;
+  /* Prefer vertical scroll; horizontal pans belong to page-turn swipes. */
+  touch-action: pan-y;
 }
 
 .pe-reading-wrap,
@@ -683,12 +694,18 @@
   overflow: auto;
   display: flex;
   justify-content: center;
+  /* Do not stretch the page card to the viewport height — that clips the
+     cream canvas while text keeps overflowing onto the dark stage. */
+  align-items: flex-start;
 }
 
 .pe-reading-page {
   --reader-scale: 1;
   width: min(780px, 100%);
   min-height: 100%;
+  height: max-content;
+  flex: 0 0 auto;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   margin: 0 auto;
@@ -698,10 +715,61 @@
     linear-gradient(90deg, rgba(35, 38, 32, 0.018) 1px, transparent 1px),
     #fbfaf6;
   background-size: 34px 34px;
+  background-clip: padding-box;
   border: 1px solid rgba(48, 46, 40, 0.09);
   border-radius: 4px 18px 18px 4px;
   box-shadow: var(--pe-shadow);
   position: relative;
+}
+
+/* Markdown books: one screenful per page, packed to the live viewport.
+   Header + footer are fixed chrome; page-body owns the remaining band and is
+   the ONLY overflow boundary (never .pe-prose { height:100% }). */
+.pe-reading-page.is-viewport-page {
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pe-reading-wrap:has(.is-viewport-page) {
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.pe-reading-page.is-viewport-page .pe-page-header,
+.pe-reading-page.is-viewport-page .pe-page-footer {
+  flex: 0 0 auto;
+}
+
+.pe-reading-page.is-viewport-page .pe-page-body {
+  /* Take leftover space between header and footer — nothing more. */
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: clamp(16px, 3vh, 28px);
+  /* Extra air above the % footer rule so the last line never hugs it. */
+  padding-bottom: clamp(22px, 4vh, 36px);
+}
+
+.pe-reading-page.is-viewport-page .pe-prose {
+  flex: 0 0 auto;
+  height: auto;
+  max-height: none;
+  /* Body clips if packing is still a hair over; prose itself must not invent
+     a shorter clip box above the body padding. */
+  overflow: visible;
+}
+
+.pe-reading-page.is-viewport-page .pe-page-footer {
+  margin-top: 0;
+  padding-top: 12px;
+  /* Sit above any accidental ink bleed from the body. */
+  position: relative;
+  z-index: 2;
+  background: #fbfaf6;
 }
 
 .pe-reading-page::before {
@@ -751,7 +819,8 @@
 }
 
 .pe-page-body {
-  flex: 1;
+  flex: 1 0 auto;
+  min-height: 0;
   padding: clamp(24px, 5vh, 48px) 0;
 }
 
@@ -1205,6 +1274,100 @@
   padding: 0;
 }
 
+.pe-chapters {
+  width: min(430px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 20px 18px;
+  color: var(--pe-text);
+  background: var(--pe-panel-strong);
+  border-left: 1px solid var(--pe-border-strong);
+  box-shadow: var(--pe-shadow);
+  animation: pe-drawer-in 220ms ease both;
+}
+
+.pe-chapters-book {
+  margin: 6px 0 0;
+  color: var(--pe-text-faint);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.pe-chapters-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 18px 4px;
+  color: var(--pe-text-faint);
+}
+
+.pe-chapters-empty strong {
+  color: var(--pe-text);
+  font-size: 15px;
+}
+
+.pe-chapters-empty span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pe-chapter-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 24px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.pe-chapter-list li + li {
+  margin-top: 4px;
+}
+
+.pe-chapter-list button {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pe-chapter-list button:hover {
+  background: color-mix(in srgb, var(--pe-text) 6%, transparent);
+}
+
+.pe-chapter-list button.is-active {
+  background: color-mix(in srgb, var(--pe-accent, #2f6f4e) 14%, transparent);
+  border-color: color-mix(in srgb, var(--pe-accent, #2f6f4e) 35%, transparent);
+}
+
+.pe-chapter-title {
+  flex: 1;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.pe-chapter-list button.is-active .pe-chapter-title {
+  font-weight: 600;
+}
+
+.pe-chapter-page {
+  flex: 0 0 auto;
+  color: var(--pe-text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .pe-settings {
   width: min(430px, 100%);
   height: 100%;
@@ -1573,7 +1736,15 @@
 }
 
 .pe-spin {
+  display: inline-flex;
+  flex: 0 0 auto;
   animation: pe-spin 900ms linear infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.pe-spin svg {
+  display: block;
 }
 
 @keyframes pe-spin {
@@ -1709,7 +1880,12 @@
   }
 
   .pe-reader-title .pe-eyebrow,
-  .pe-toolbar-actions .pe-icon-button {
+  .pe-toolbar-actions .pe-icon-button:not(.pe-chapters-trigger) {
+    display: none;
+  }
+
+  /* Keep Contents visible; zoom is secondary on phones. */
+  .pe-reader-nav .pe-zoom-controls {
     display: none;
   }
 
@@ -1723,7 +1899,10 @@
   }
 
   .pe-reading-page {
-    padding: 22px 24px 20px 32px;
+    width: 100%;
+    min-height: max-content;
+    height: max-content;
+    padding: 22px 24px 28px 32px;
     border-radius: 3px 12px 12px 3px;
   }
 
@@ -1774,6 +1953,136 @@
   .pe-welcome-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+/* Mobile immersive reader — YouTube-style focus chrome */
+@media (max-width: 860px) {
+  .pe-app.is-focus-reading .pe-shell {
+    height: 100dvh;
+  }
+
+  .pe-app.is-focus-reading .pe-topbar,
+  .pe-app.is-focus-reading .pe-reader-toolbar,
+  .pe-app.is-focus-reading .pe-reader-nav,
+  .pe-app.is-focus-reading .pe-playback-dock {
+    transition:
+      transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 240ms ease;
+    will-change: transform, opacity;
+  }
+
+  .pe-app.is-focus-reading .pe-topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    z-index: 45;
+    background: color-mix(in srgb, var(--pe-panel) 88%, transparent);
+  }
+
+  .pe-app.is-focus-reading .pe-reader-toolbar {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    right: 0;
+    z-index: 44;
+    min-height: 54px;
+    background: color-mix(in srgb, var(--pe-panel) 90%, transparent);
+  }
+
+  .pe-app.is-focus-reading .pe-reader-nav {
+    position: fixed;
+    top: 110px;
+    left: 0;
+    right: 0;
+    z-index: 43;
+    background: color-mix(in srgb, var(--pe-panel) 90%, transparent);
+    border-bottom: 1px solid var(--pe-border);
+    backdrop-filter: blur(16px);
+  }
+
+  .pe-app.is-focus-reading .pe-main {
+    height: 100%;
+  }
+
+  .pe-app.is-focus-reading .pe-reader-stage {
+    flex: 1;
+    min-height: 0;
+    padding: 12px 10px 28px;
+  }
+
+  .pe-app.is-focus-reading .pe-statusbar {
+    display: none;
+  }
+
+  .pe-app.is-focus-reading .pe-playback-dock {
+    position: fixed;
+    left: 50%;
+    bottom: max(18px, env(safe-area-inset-bottom, 0px));
+    width: calc(100% - 20px);
+    z-index: 46;
+    transform: translateX(-50%);
+  }
+
+  .pe-app.is-focus-reading:not(.is-chrome-visible) .pe-topbar,
+  .pe-app.is-focus-reading:not(.is-chrome-visible) .pe-reader-toolbar,
+  .pe-app.is-focus-reading:not(.is-chrome-visible) .pe-reader-nav {
+    transform: translateY(calc(-100% - 18px));
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .pe-app.is-focus-reading:not(.is-chrome-visible) .pe-playback-dock {
+    transform: translate(-50%, calc(100% + 36px));
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .pe-app.is-focus-reading.is-chrome-visible .pe-topbar,
+  .pe-app.is-focus-reading.is-chrome-visible .pe-reader-toolbar,
+  .pe-app.is-focus-reading.is-chrome-visible .pe-reader-nav {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  .pe-app.is-focus-reading.is-chrome-visible .pe-playback-dock {
+    transform: translateX(-50%);
+    opacity: 1;
+  }
+
+  .pe-focus-edge {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .pe-focus-edge-top {
+    top: 0;
+    height: 28px;
+  }
+
+  .pe-focus-edge-bottom {
+    bottom: 0;
+    height: 34px;
+    display: grid;
+    place-items: end center;
+    padding-bottom: 10px;
+  }
+
+  .pe-focus-edge-bottom span {
+    width: 44px;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--pe-text) 28%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--pe-bg) 40%, transparent);
   }
 }
 

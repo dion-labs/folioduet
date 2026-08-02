@@ -132,6 +132,11 @@ export interface TTSEngineConfig {
   inworldApiKey?: string;
   inworldEndpoint?: string;
   inworldVoiceId?: string;
+
+  // Fish Audio configurations
+  provider?: 'inworld' | 'fish-audio';
+  fishAudioVoiceId?: string;
+  fishAudioApiKey?: string;
 }
 
 export class TTSEngine {
@@ -161,7 +166,7 @@ export class TTSEngine {
   }[] = [];
 
   // Configuration options
-  private config: Required<Omit<TTSEngineConfig, 'onWordBoundary' | 'onEnd' | 'onError' | 'onPause' | 'onResume' | 'onStop' | 'inworldEnabled' | 'inworldApiKey' | 'inworldEndpoint' | 'inworldVoiceId'>> & {
+  private config: Required<Omit<TTSEngineConfig, 'onWordBoundary' | 'onEnd' | 'onError' | 'onPause' | 'onResume' | 'onStop' | 'inworldEnabled' | 'inworldApiKey' | 'inworldEndpoint' | 'inworldVoiceId' | 'provider' | 'fishAudioVoiceId' | 'fishAudioApiKey'>> & {
     onWordBoundary: TTSEngineConfig['onWordBoundary'];
     onEnd: TTSEngineConfig['onEnd'];
     onError: TTSEngineConfig['onError'];
@@ -172,6 +177,9 @@ export class TTSEngine {
     inworldApiKey?: string;
     inworldEndpoint?: string;
     inworldVoiceId?: string;
+    provider?: 'inworld' | 'fish-audio';
+    fishAudioVoiceId?: string;
+    fishAudioApiKey?: string;
   };
 
   // Simulation Fallback state (for environments where onboundary doesn't fire)
@@ -201,6 +209,9 @@ export class TTSEngine {
       inworldApiKey: "",
       inworldEndpoint: "",
       inworldVoiceId: "Ashley",
+      provider: "inworld",
+      fishAudioVoiceId: "933563129e564b19a115bedd57b7406a",
+      fishAudioApiKey: "",
       ...config,
     };
   }
@@ -586,19 +597,35 @@ export class TTSEngine {
         headers.Authorization = apiKey.startsWith("Basic ") ? apiKey : `Basic ${apiKey}`;
       }
 
+      const provider = this.config.provider || "inworld";
+      const body: Record<string, any> = {
+        provider,
+        text,
+      };
+
+      if (provider === 'fish-audio') {
+        body.voiceId = this.config.fishAudioVoiceId || "933563129e564b19a115bedd57b7406a";
+        body.modelId = "s2.1-pro-free";
+        if (this.config.fishAudioApiKey) {
+          body.fishAudioApiKey = this.config.fishAudioApiKey;
+        }
+      } else {
+        body.voiceId = this.config.inworldVoiceId || "Ashley";
+        body.modelId = "inworld-tts-2";
+        body.timestampType = "WORD";
+        body.audioConfig = {
+          audioEncoding: "MP3",
+          sampleRateHertz: 22050,
+        };
+        if (this.config.inworldApiKey) {
+          body.apiKey = this.config.inworldApiKey;
+        }
+      }
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          text: text,
-          voiceId: this.config.inworldVoiceId || "Ashley",
-          modelId: "inworld-tts-2",
-          timestampType: "WORD",
-          audioConfig: {
-            audioEncoding: "MP3",
-            sampleRateHertz: 22050,
-          },
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!response.ok) {
@@ -640,12 +667,15 @@ export class TTSEngine {
   }
 
   private getInworldCacheKey(text: string): string {
-    return `${this.config.inworldVoiceId || 'Ashley'}\u0000${text}`;
+    const voiceId = this.config.provider === 'fish-audio'
+      ? (this.config.fishAudioVoiceId || '933563129e564b19a115bedd57b7406a')
+      : (this.config.inworldVoiceId || 'Ashley');
+    return `${this.config.provider || 'inworld'}\u0000${voiceId}\u0000${text}`;
   }
 
   private hasInworldRoute(): boolean {
     return Boolean(
-      this.config.inworldEnabled &&
+      (this.config.inworldEnabled || this.config.provider === 'fish-audio') &&
       (this.config.inworldEndpoint || this.config.inworldApiKey),
     );
   }

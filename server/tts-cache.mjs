@@ -37,8 +37,29 @@ function normalizeRequest(input) {
     throw new TtsCacheError('A JSON TTS request is required.', 400, 'INVALID_REQUEST');
   }
 
+  const provider = typeof input.provider === 'string' ? input.provider.trim() : 'inworld';
   const text = typeof input.text === 'string' ? input.text : '';
   const voiceId = typeof input.voiceId === 'string' ? input.voiceId.trim() : '';
+
+  if (!text.trim()) {
+    throw new TtsCacheError('TTS text cannot be empty.', 400, 'EMPTY_TEXT');
+  }
+  if (text.length > 2000) {
+    throw new TtsCacheError(
+      'TTS text cannot exceed 2,000 characters.',
+      400,
+      'TEXT_TOO_LONG',
+    );
+  }
+
+  if (provider === 'fish-audio') {
+    const modelId = typeof input.modelId === 'string' && input.modelId.trim()
+      ? input.modelId.trim()
+      : 's2.1-pro-free';
+    const fishAudioApiKey = typeof input.fishAudioApiKey === 'string' ? input.fishAudioApiKey.trim() : '';
+    return { provider, text, voiceId, modelId, fishAudioApiKey };
+  }
+
   const modelId = typeof input.modelId === 'string' && input.modelId.trim()
     ? input.modelId.trim()
     : DEFAULT_MODEL_ID;
@@ -56,16 +77,6 @@ function normalizeRequest(input) {
         : DEFAULT_AUDIO_CONFIG.sampleRateHertz,
   };
 
-  if (!text.trim()) {
-    throw new TtsCacheError('TTS text cannot be empty.', 400, 'EMPTY_TEXT');
-  }
-  if (text.length > 2000) {
-    throw new TtsCacheError(
-      'TTS text cannot exceed 2,000 characters.',
-      400,
-      'TEXT_TOO_LONG',
-    );
-  }
   if (!voiceId || voiceId.length > 128) {
     throw new TtsCacheError('A valid voiceId is required.', 400, 'INVALID_VOICE');
   }
@@ -80,11 +91,20 @@ function normalizeRequest(input) {
     throw new TtsCacheError('Unsupported audio configuration.', 400, 'INVALID_AUDIO_CONFIG');
   }
 
-  return { text, voiceId, modelId, timestampType, audioConfig };
+  const apiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
+  return { provider, text, voiceId, modelId, timestampType, audioConfig, apiKey };
 }
 
 export function createTtsCacheKey(input) {
   const request = normalizeRequest(input);
+  if (request.provider === 'fish-audio') {
+    return sha256(JSON.stringify({
+      provider: 'fish-audio',
+      modelId: request.modelId,
+      voiceId: request.voiceId,
+      text: request.text,
+    }));
+  }
   return sha256(JSON.stringify({
     provider: 'inworld',
     modelId: request.modelId,
@@ -121,6 +141,7 @@ export class TtsCache {
   constructor({
     dataDir,
     apiKey = process.env.INWORLD_API_KEY || '',
+    fishAudioApiKey = process.env.FISH_AUDIO_API_KEY || '',
     fetchImpl = globalThis.fetch,
     now = () => Date.now(),
   }) {
@@ -129,6 +150,7 @@ export class TtsCache {
 
     this.dataDir = path.resolve(dataDir);
     this.apiKey = apiKey;
+    this.fishAudioApiKey = fishAudioApiKey;
     this.fetchImpl = fetchImpl;
     this.now = now;
     this.inFlight = new Map();
@@ -186,6 +208,19 @@ export class TtsCache {
 
   get isConfigured() {
     return Boolean(this.apiKey);
+  }
+
+  get isFishAudioConfigured() {
+    return Boolean(this.fishAudioApiKey);
+  }
+
+  setCredentials({ inworldApiKey, fishAudioApiKey } = {}) {
+    if (typeof inworldApiKey === 'string') {
+      this.apiKey = inworldApiKey.trim();
+    }
+    if (typeof fishAudioApiKey === 'string') {
+      this.fishAudioApiKey = fishAudioApiKey.trim();
+    }
   }
 
   resolveStoredPath(relativePath) {
@@ -250,7 +285,158 @@ export class TtsCache {
   }
 
   async generateAndStore(cacheKey, request) {
-    if (!this.apiKey) {
+    if (request.provider === 'fish-audio') {
+      return this.generateAndStoreFishAudio(cacheKey, request);
+    }
+    return this.generateAndStoreInworld(cacheKey, request);
+  }
+
+  async generateAndStoreFishAudio(cacheKey, request) {
+    const apiKey = request.fishAudioApiKey || this.fishAudioApiKey;
+    if (!apiKey) {
+      throw new TtsCacheError(
+        'The server has no FISH_AUDIO_API_KEY configured.',
+        503,
+        'FISH_AUDIO_NOT_CONFIGURED',
+      );
+    }
+
+    const response = await this.fetchImpl('https://api.fish.audio/v1/tts/stream/with-timestamp', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        model: request.modelId,
+      },
+      body: JSON.stringify({
+        text: request.text,
+        reference_id: request.voiceId || undefined,
+        format: 'mp3',
+        latency: 'balanced',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const message = errorData.message || `HTTP ${response.status}`;
+      throw new TtsCacheError(
+        `Fish Audio API returned error: ${message}`,
+        response.status >= 400 && response.status < 500 ? 400 : 502,
+        'FISH_AUDIO_ERROR',
+      );
+    }
+
+    const audioChunks = [];
+    const alignmentByChunk = new Map();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for await (const chunk of response.body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() ?? '';
+
+      for (const eventText of events) {
+        const dataLine = eventText
+          .split('\n')
+          .find((line) => line.startsWith('data: '));
+
+        if (!dataLine) continue;
+
+        try {
+          const event = JSON.parse(dataLine.slice(6));
+          if (event.audio_base64) {
+            audioChunks.push(Buffer.from(event.audio_base64, 'base64'));
+          }
+
+          if (event.alignment !== null && event.alignment !== undefined) {
+            alignmentByChunk.set(event.chunk_seq, {
+              content: event.content,
+              offset: event.chunk_audio_offset_sec ?? 0,
+              alignment: event.alignment,
+            });
+          }
+        } catch (e) {
+          console.error('[PageEcho] Error parsing Fish Audio SSE event:', e);
+        }
+      }
+    }
+
+    const audio = Buffer.concat(audioChunks);
+    if (audio.length === 0) {
+      throw new TtsCacheError(
+        'Fish Audio returned empty audio.',
+        502,
+        'INVALID_FISH_AUDIO_RESPONSE',
+      );
+    }
+
+    const timeline = [];
+    for (const [chunkSeq, item] of [...alignmentByChunk.entries()].sort(([a], [b]) => a - b)) {
+      if (item.alignment && Array.isArray(item.alignment.segments)) {
+        for (const segment of item.alignment.segments) {
+          timeline.push({
+            text: segment.text,
+            start: segment.start + item.offset,
+            end: segment.end + item.offset,
+            chunk_seq: chunkSeq,
+          });
+        }
+      }
+    }
+
+    const timestampInfo = {
+      wordAlignment: {
+        words: timeline.map((t) => t.text),
+        wordStartTimeSeconds: timeline.map((t) => t.start),
+        wordEndTimeSeconds: timeline.map((t) => t.end),
+      },
+    };
+
+    const voiceDirectory = safePathSegment(request.voiceId || 'default');
+    const relativeDirectory = path.join('tts', 'fish-audio', voiceDirectory, cacheKey.slice(0, 2));
+    const audioRelativePath = path.join(relativeDirectory, `${cacheKey}.mp3`);
+    const timestampsRelativePath = path.join(relativeDirectory, `${cacheKey}.timestamps.json`);
+    const audioPath = this.resolveStoredPath(audioRelativePath);
+    const timestampsPath = this.resolveStoredPath(timestampsRelativePath);
+
+    await Promise.all([
+      writeAtomic(audioPath, audio),
+      writeAtomic(
+        timestampsPath,
+        JSON.stringify(timestampInfo, null, 2),
+      ),
+    ]);
+
+    await this.ready;
+    const timestamp = this.now();
+    this.insertStatement.run(
+      cacheKey,
+      'fish-audio',
+      request.modelId,
+      request.voiceId || 'default',
+      sha256(request.text),
+      request.text.length,
+      'MP3',
+      22050,
+      audioRelativePath,
+      timestampsRelativePath,
+      audio.length,
+      timestamp,
+      timestamp,
+    );
+
+    return {
+      cacheKey,
+      cacheStatus: 'miss',
+      audioContent: audio.toString('base64'),
+      timestampInfo,
+    };
+  }
+
+  async generateAndStoreInworld(cacheKey, request) {
+    const apiKey = request.apiKey || this.apiKey;
+    if (!apiKey) {
       throw new TtsCacheError(
         'The server has no INWORLD_API_KEY configured.',
         503,
@@ -258,9 +444,9 @@ export class TtsCache {
       );
     }
 
-    const authHeader = this.apiKey.startsWith('Basic ')
-      ? this.apiKey
-      : `Basic ${this.apiKey}`;
+    const authHeader = apiKey.startsWith('Basic ')
+      ? apiKey
+      : `Basic ${apiKey}`;
     const response = await this.fetchImpl('https://api.inworld.ai/tts/v1/voice', {
       method: 'POST',
       headers: {
