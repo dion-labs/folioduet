@@ -990,6 +990,50 @@
   align-items: flex-start;
 }
 
+/* Soft page handoff — short crossfade/slide, never a skeuomorphic flip. */
+.pe-reading-wrap.is-turn-next .pe-reading-page,
+.pe-reading-wrap.is-turn-prev .pe-reading-page,
+.pe-pane.is-turn-next .pe-reading-page,
+.pe-pane.is-turn-prev .pe-reading-page {
+  will-change: opacity, transform;
+}
+
+.pe-reading-wrap.is-turn-next .pe-reading-page,
+.pe-pane.is-turn-next .pe-reading-page {
+  animation: pe-soft-turn-next 180ms ease-out;
+}
+
+.pe-reading-wrap.is-turn-prev .pe-reading-page,
+.pe-pane.is-turn-prev .pe-reading-page {
+  animation: pe-soft-turn-prev 180ms ease-out;
+}
+
+@keyframes pe-soft-turn-next {
+  from {
+    opacity: 0.42;
+    transform: translateX(10%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pe-soft-turn-prev {
+  from {
+    opacity: 0.42;
+    transform: translateX(-10%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.pe-reading-page.is-page-holding {
+  opacity: 0.92;
+}
+
 .pe-reading-page {
   --reader-scale: 1;
   width: min(780px, 100%);

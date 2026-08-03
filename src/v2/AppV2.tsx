@@ -298,6 +298,16 @@ export default function AppV2() {
   const [pageContent, setPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
   const [nextPageContent, setNextPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
   const [markdownBlocks, setMarkdownBlocks] = useState<MarkdownBlock[]>([]);
+  /** Last fully painted page — kept on screen while the next page prepares. */
+  const [paintedPage, setPaintedPage] = useState<{
+    pageIndex: number;
+    blocks: string[];
+    markdownBlocks: MarkdownBlock[];
+  } | null>(null);
+  const [pageTurnDir, setPageTurnDir] = useState<-1 | 0 | 1>(0);
+  const paintedPageIndexRef = useRef<number | null>(null);
+  /** Live reading-page count for TTS auto-advance (viewport pack can lead library totalPages). */
+  const [readerPageCount, setReaderPageCount] = useState(() => Math.max(1, activeDocument?.totalPages ?? 1));
   const [bookStream, setBookStream] = useState<BookStreamBlock[] | null>(null);
   const [source, setSource] = useState<File | string | null>(null);
   const [pairedPdf, setPairedPdf] = useState<File | null>(null);
@@ -528,7 +538,7 @@ export default function AppV2() {
     nextPageBlocks: nextPageContent.blocks,
     nextBlocksPageIndex: nextPageContent.pageIndex,
     pageIndex,
-    totalPages: activeDocument?.totalPages ?? 1,
+    totalPages: readerPageCount,
     config: ttsConfig,
     onAutoAdvance: (nextPage) => pageChangeRef.current(nextPage, 'automatic'),
     onPositionUpdate: queueProgress,
@@ -1297,6 +1307,54 @@ export default function AppV2() {
     pageStartsRef.current = pageStarts;
   }, [pageStarts]);
 
+  useEffect(() => {
+    const next = Math.max(
+      viewportPages.length,
+      activeDocument?.totalPages ?? 1,
+      1,
+    );
+    setReaderPageCount((prev) => (prev === next ? prev : next));
+  }, [viewportPages.length, activeDocument?.totalPages]);
+
+  useEffect(() => {
+    setPaintedPage(null);
+    paintedPageIndexRef.current = null;
+    setPageTurnDir(0);
+  }, [activeDocumentId]);
+
+  useEffect(() => {
+    const hasText = pageContent.blocks.some((block) => block.trim()) || markdownBlocks.length > 0;
+    if (pageContent.pageIndex !== pageIndex || !hasText) return;
+    if (documentLoading) return;
+    if (Boolean(bookStream) && !viewportReady) return;
+    setPaintedPage({
+      pageIndex,
+      blocks: pageContent.blocks,
+      markdownBlocks,
+    });
+  }, [
+    bookStream,
+    documentLoading,
+    markdownBlocks,
+    pageContent.blocks,
+    pageContent.pageIndex,
+    pageIndex,
+    viewportReady,
+  ]);
+
+  useEffect(() => {
+    if (!paintedPage) return;
+    if (paintedPageIndexRef.current === null) {
+      paintedPageIndexRef.current = paintedPage.pageIndex;
+      return;
+    }
+    if (paintedPageIndexRef.current === paintedPage.pageIndex) return;
+    setPageTurnDir(paintedPage.pageIndex > paintedPageIndexRef.current ? 1 : -1);
+    paintedPageIndexRef.current = paintedPage.pageIndex;
+    const timer = window.setTimeout(() => setPageTurnDir(0), 220);
+    return () => window.clearTimeout(timer);
+  }, [paintedPage]);
+
   const chapterIndex = useMemo(
     () => (bookStream && bookStream.length > 0 ? buildChapterIndex(bookStream) : []),
     [bookStream],
@@ -1851,7 +1909,7 @@ export default function AppV2() {
   const displayBlockIndex = tts.isPlaying && tts.activeBlockIndex >= 0 ? tts.activeBlockIndex : savedBlockIndex;
   const displayWordIndex = tts.isPlaying && tts.activeWordIndex >= 0 ? tts.activeWordIndex : savedWordIndex;
   const progress = activeDocument
-    ? calculateProgress(pageIndex, activeDocument.totalPages, displayWordIndex)
+    ? calculateProgress(pageIndex, readerPageCount, displayWordIndex)
     : 0;
 
   const isViewportBook = Boolean(bookStream);
@@ -1859,21 +1917,36 @@ export default function AppV2() {
     || (isViewportBook && !viewportReady)
     || pageContent.pageIndex !== pageIndex;
 
+  const holdingPaintedPage = Boolean(
+    pagePreparing && paintedPage && paintedPage.pageIndex !== pageIndex,
+  );
+  const displayPageIndex = holdingPaintedPage && paintedPage
+    ? paintedPage.pageIndex
+    : pageIndex;
+  const displayPlainBlocks = holdingPaintedPage && paintedPage
+    ? paintedPage.blocks
+    : pageContent.blocks;
+  const displayMarkdownBlocks = holdingPaintedPage && paintedPage
+    ? paintedPage.markdownBlocks
+    : markdownBlocks;
+  const showPreparingSpinner = pagePreparing && !holdingPaintedPage;
+
   const renderTextPage = (compact = false) => (
     <article
       className={[
         'pe-reading-page',
         compact ? 'is-compact' : '',
         isViewportBook ? 'is-viewport-page' : '',
+        holdingPaintedPage ? 'is-page-holding' : '',
       ].filter(Boolean).join(' ')}
       style={{ '--reader-scale': preferences.fontScale } as React.CSSProperties}
     >
       <header className="pe-page-header">
         <span>{activeDocument?.name}</span>
-        <span>{String(pageIndex + 1).padStart(2, '0')} / {String(activeDocument?.totalPages ?? 1).padStart(2, '0')}</span>
+        <span>{String(displayPageIndex + 1).padStart(2, '0')} / {String(readerPageCount).padStart(2, '0')}</span>
       </header>
       <div className="pe-page-body" ref={pageBodyRef}>
-        {pagePreparing ? (
+        {showPreparingSpinner ? (
           <div className="pe-reader-state">
             <span className="pe-spin" aria-hidden="true">
               <LoaderCircle size={25} />
@@ -1889,13 +1962,13 @@ export default function AppV2() {
                 : 'Fitting the reading layer to your screen…'}
             </span>
           </div>
-        ) : pageContent.blocks.some((block) => block.trim()) || markdownBlocks.length ? (
+        ) : displayPlainBlocks.some((block) => block.trim()) || displayMarkdownBlocks.length ? (
           <ReaderWords
-            markdownBlocks={isViewportBook ? markdownBlocks : undefined}
-            plainBlocks={pageContent.blocks}
-            activeBlockIndex={displayBlockIndex}
-            activeWordIndex={displayWordIndex}
-            playbackState={tts.playbackState}
+            markdownBlocks={isViewportBook ? displayMarkdownBlocks : undefined}
+            plainBlocks={displayPlainBlocks}
+            activeBlockIndex={holdingPaintedPage ? -1 : displayBlockIndex}
+            activeWordIndex={holdingPaintedPage ? -1 : displayWordIndex}
+            playbackState={holdingPaintedPage ? 'idle' : tts.playbackState}
             onWordSelect={(blockIndex, wordIndex) => tts.play(blockIndex, wordIndex)}
           />
         ) : (
@@ -2264,7 +2337,15 @@ export default function AppV2() {
                 ) : readerView === 'parallel' && activeDocument.kind === 'markdown-zip' ? (
                   pairedPdf ? (
                     <div className="pe-parallel">
-                      <div className="pe-pane">{renderTextPage(true)}</div>
+                      <div
+                        className={[
+                          'pe-pane',
+                          pageTurnDir === 1 ? 'is-turn-next' : '',
+                          pageTurnDir === -1 ? 'is-turn-prev' : '',
+                        ].filter(Boolean).join(' ')}
+                      >
+                        {renderTextPage(true)}
+                      </div>
                       <div className="pe-pane pe-pane-pdf">
                         <Suspense fallback={<div className="pe-reader-state"><LoaderCircle className="pe-spin" size={25} /><strong>Loading PDF viewer…</strong></div>}>
                           <BimodalPDFViewer
@@ -2301,7 +2382,13 @@ export default function AppV2() {
                     </div>
                   )
                 ) : (
-                  <div className="pe-reading-wrap">
+                  <div
+                    className={[
+                      'pe-reading-wrap',
+                      pageTurnDir === 1 ? 'is-turn-next' : '',
+                      pageTurnDir === -1 ? 'is-turn-prev' : '',
+                    ].filter(Boolean).join(' ')}
+                  >
                     {renderTextPage()}
                   </div>
                 )}

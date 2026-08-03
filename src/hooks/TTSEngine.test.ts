@@ -159,6 +159,42 @@ describe('TTSEngine cache keys', () => {
 });
 
 describe('TTSEngine preloading', () => {
+  it('warms Fish Audio blocks the same way as Inworld (cross-page look-ahead)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        audioContent: 'audio',
+        timestampInfo: {
+          wordAlignment: {
+            words: ['Next'],
+            wordStartTimeSeconds: [0],
+            wordEndTimeSeconds: [0.2],
+          },
+        },
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const engine = new TTSEngine({
+      inworldEnabled: true,
+      inworldEndpoint: '/api/tts/synthesize',
+      provider: 'fish-audio',
+      fishAudioVoiceId: 'voice-fish',
+    });
+
+    engine.preloadBlocks(['next page speech', 'later'], 2);
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const bodies = fetchMock.mock.calls.map(([, request]) => (
+      JSON.parse((request as RequestInit).body as string)
+    ));
+    expect(bodies[0].provider).toBe('fish-audio');
+    expect(bodies[0].voiceId).toBe('voice-fish');
+    expect(bodies[0].text).toBe('next page speech');
+    expect(bodies[1].text).toBe('later');
+  });
+
   it('warms only the first safe chunk of each upcoming block', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

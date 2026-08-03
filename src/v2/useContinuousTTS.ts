@@ -132,11 +132,14 @@ export function useContinuousTTS({
     }
 
     const nextPageIndex = pageIndexRef.current + 1;
-    if (nextPageIndex < totalPagesRef.current) {
+    const nextPageReady = nextBlocksPageIndexRef.current === nextPageIndex
+      && Boolean(nextPageBlocksRef.current.some((block) => block.trim()));
+    // Prefer live viewport count, but also advance when the next page's
+    // speakable blocks are already prefetched (totalPages can lag packing).
+    if (nextPageIndex < totalPagesRef.current || nextPageReady) {
       pendingAutoPageRef.current = nextPageIndex;
-      activeBlockIndexRef.current = -1;
-      setActiveBlockIndex(-1);
-      setActiveWordIndex(-1);
+      // Keep the last highlight until the next page starts speaking — clearing
+      // here makes the boundary feel like reading stopped (abrupt cut).
       setPlaybackState('buffering');
       onAutoAdvanceRef.current(nextPageIndex);
       return;
@@ -205,12 +208,19 @@ export function useContinuousTTS({
     }
 
     pendingAutoPageRef.current = null;
-    const timer = window.setTimeout(() => {
+    // Next-page audio is usually preloaded; play on the next frame once React
+    // has committed the new blocks (no artificial 80ms gap).
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return;
       if (!playBlock(0, 0)) {
         setPlaybackState('idle');
       }
-    }, 80);
-    return () => window.clearTimeout(timer);
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
   }, [blocks, blocksPageIndex, pageIndex, playBlock]);
 
   const play = useCallback((blockIndex = 0, wordIndex = 0) => {
