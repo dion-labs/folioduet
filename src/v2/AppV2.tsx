@@ -341,6 +341,7 @@ export default function AppV2() {
   ));
 
   const pageChangeRef = useRef<(nextPage: number, source: PageChangeSource) => void>(() => undefined);
+  const readingWrapRef = useRef<HTMLDivElement | null>(null);
   const pendingProgressRef = useRef<PendingProgress | null>(null);
   const progressTimerRef = useRef<number | null>(null);
   const pendingHandoffRef = useRef<HandoffTarget | null>(null);
@@ -1323,6 +1324,19 @@ export default function AppV2() {
   }, [activeDocumentId]);
 
   useEffect(() => {
+    const wrap = readingWrapRef.current;
+    if (wrap) {
+      wrap.scrollTop = 0;
+      wrap.scrollLeft = 0;
+    }
+    const body = pageBodyRef.current;
+    if (body) {
+      body.scrollTop = 0;
+      body.scrollLeft = 0;
+    }
+  }, [pageIndex]);
+
+  useEffect(() => {
     const hasText = pageContent.blocks.some((block) => block.trim()) || markdownBlocks.length > 0;
     if (pageContent.pageIndex !== pageIndex || !hasText) return;
     if (documentLoading) return;
@@ -1351,6 +1365,17 @@ export default function AppV2() {
     if (paintedPageIndexRef.current === paintedPage.pageIndex) return;
     setPageTurnDir(paintedPage.pageIndex > paintedPageIndexRef.current ? 1 : -1);
     paintedPageIndexRef.current = paintedPage.pageIndex;
+    // Mobile: keep a single page frame — never leave leftover scroll under the new page.
+    const wrap = readingWrapRef.current;
+    if (wrap) {
+      wrap.scrollTop = 0;
+      wrap.scrollLeft = 0;
+    }
+    const body = pageBodyRef.current;
+    if (body) {
+      body.scrollTop = 0;
+      body.scrollLeft = 0;
+    }
     const timer = window.setTimeout(() => setPageTurnDir(0), 220);
     return () => window.clearTimeout(timer);
   }, [paintedPage]);
@@ -1933,6 +1958,7 @@ export default function AppV2() {
 
   const renderTextPage = (compact = false) => (
     <article
+      key={displayPageIndex}
       className={[
         'pe-reading-page',
         compact ? 'is-compact' : '',
@@ -2340,6 +2366,7 @@ export default function AppV2() {
                       <div
                         className={[
                           'pe-pane',
+                          pageTurnDir !== 0 ? 'is-turning' : '',
                           pageTurnDir === 1 ? 'is-turn-next' : '',
                           pageTurnDir === -1 ? 'is-turn-prev' : '',
                         ].filter(Boolean).join(' ')}
@@ -2383,8 +2410,10 @@ export default function AppV2() {
                   )
                 ) : (
                   <div
+                    ref={readingWrapRef}
                     className={[
                       'pe-reading-wrap',
+                      pageTurnDir !== 0 ? 'is-turning' : '',
                       pageTurnDir === 1 ? 'is-turn-next' : '',
                       pageTurnDir === -1 ? 'is-turn-prev' : '',
                     ].filter(Boolean).join(' ')}
