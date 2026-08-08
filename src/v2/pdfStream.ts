@@ -3,6 +3,13 @@ import { buildBookStream } from './documents';
 import type { BookStreamBlock } from './bookStream';
 import type { PdfExtractor } from './types';
 
+export type PdfExtractionResult = {
+  pages: string[];
+  requested: PdfExtractor;
+  used: PdfExtractor;
+  didFallback: boolean;
+};
+
 // Vite rewrites this worker URL for the browser bundle. Tests/Node may override
 // GlobalWorkerOptions.workerSrc before calling loadPdfStream.
 if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -121,20 +128,34 @@ async function extractPdfMarkdownPagesWithPdfJs(file: File): Promise<string[]> {
  * Extract PDF text with the selected local engine. AnyDoc is experimental;
  * if it cannot convert a file, retain the established PDF.js path as a fallback.
  */
-export async function extractPdfMarkdownPages(
+export async function extractPdfMarkdown(
   file: File,
   extractor: PdfExtractor = 'pageecho',
-): Promise<string[]> {
+): Promise<PdfExtractionResult> {
   if (extractor === 'anydoc') {
     try {
       const { extractPdfWithAnydoc } = await import('./anydocPdf');
       const pages = await extractPdfWithAnydoc(file);
-      if (pages.length > 0) return pages;
+      if (pages.length > 0) {
+        return { pages, requested: extractor, used: 'anydoc', didFallback: false };
+      }
     } catch (error) {
       console.warn('[PageEcho] AnyDoc extraction failed; using PDF.js.', error);
     }
   }
-  return extractPdfMarkdownPagesWithPdfJs(file);
+  return {
+    pages: await extractPdfMarkdownPagesWithPdfJs(file),
+    requested: extractor,
+    used: 'pageecho',
+    didFallback: extractor === 'anydoc',
+  };
+}
+
+export async function extractPdfMarkdownPages(
+  file: File,
+  extractor: PdfExtractor = 'pageecho',
+): Promise<string[]> {
+  return (await extractPdfMarkdown(file, extractor)).pages;
 }
 
 /**
