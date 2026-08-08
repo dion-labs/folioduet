@@ -13,6 +13,7 @@ const defaultPreferences = Object.freeze({
   fontScale: 1,
   playbackRate: 1,
   volume: 1,
+  pdfExtractor: 'pageecho',
   inworldEnabled: false,
   inworldVoiceId: 'Ashley',
   fishAudioEnabled: true,
@@ -35,6 +36,7 @@ function sanitizePreferences(input) {
     fontScale: asNumber(source.fontScale, defaultPreferences.fontScale),
     playbackRate: asNumber(source.playbackRate, defaultPreferences.playbackRate),
     volume: asNumber(source.volume, defaultPreferences.volume),
+    pdfExtractor: source.pdfExtractor === 'anydoc' ? 'anydoc' : 'pageecho',
     inworldEnabled: source.inworldEnabled === true,
     inworldVoiceId:
       typeof source.inworldVoiceId === 'string' && source.inworldVoiceId.trim()
