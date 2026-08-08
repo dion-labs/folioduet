@@ -138,6 +138,7 @@ import type {
   DeviceSyncStatus,
   LibraryDocument,
   PageContent,
+  PdfExtractionStatus,
   ReaderView,
   TtsServerStatus,
 } from './types';
@@ -311,6 +312,7 @@ export default function AppV2() {
   const [pairedPdf, setPairedPdf] = useState<File | null>(null);
   const [documentLoading, setDocumentLoading] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [pdfExtractionStatus, setPdfExtractionStatus] = useState<PdfExtractionStatus | null>(null);
 
   const [preferences, setPreferences] = useState(loadPreferences);
   const [deviceSyncStatus, setDeviceSyncStatus] = useState<DeviceSyncStatus>('idle');
@@ -1036,6 +1038,7 @@ export default function AppV2() {
     if (!hydrateReady || !activeDocument) return () => { active = false; };
 
     setDocumentLoading(true);
+    setPdfExtractionStatus(null);
     Promise.all([
       loadSourceFile(activeDocument).then(async (local) => {
         if (local) return local;
@@ -1146,18 +1149,31 @@ export default function AppV2() {
       setSource(loadedSource);
       if (loadedSource instanceof File) {
         // Lazy-load pdf.js only when a PDF opens — keeps first paint light on phones.
-        const { extractPdfMarkdownPages } = await import('./pdfStream');
+        const { extractPdfMarkdown } = await import('./pdfStream');
         if (!active) return;
-        const sourcePages = await extractPdfMarkdownPages(
+        setPdfExtractionStatus({
+          state: 'extracting',
+          requested: preferences.pdfExtractor,
+        });
+        const extraction = await extractPdfMarkdown(
           loadedSource,
           preferences.pdfExtractor,
         );
         if (!active) return;
+        const sourcePages = extraction.pages;
         if (sourcePages.length === 0) {
+          setPdfExtractionStatus({ state: 'error', requested: preferences.pdfExtractor });
           throw new Error(
             'This PDF has no selectable text layer (it may be a scan). PageEcho needs text to build the reading view.',
           );
         }
+        setPdfExtractionStatus(extraction.didFallback
+          ? { state: 'fallback', requested: 'anydoc', used: 'pageecho' }
+          : {
+              state: 'ready',
+              requested: extraction.requested,
+              used: extraction.used,
+            });
         const stream = buildBookStream(sourcePages, activeDocument.name);
         setBookStream(stream);
 
@@ -2606,6 +2622,7 @@ export default function AppV2() {
       <SettingsPanel
         open={settingsOpen}
         preferences={preferences}
+        pdfExtractionStatus={pdfExtractionStatus}
         inworldServerStatus={inworldServerStatus}
         fishAudioServerStatus={fishAudioServerStatus}
         deviceSyncStatus={deviceSyncStatus}

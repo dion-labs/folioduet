@@ -4,6 +4,12 @@ export type ReaderView = 'reading' | 'original' | 'parallel';
 
 export type PdfExtractor = 'pageecho' | 'anydoc';
 
+export type PdfExtractionStatus =
+  | { state: 'extracting'; requested: PdfExtractor }
+  | { state: 'ready'; requested: PdfExtractor; used: PdfExtractor }
+  | { state: 'fallback'; requested: 'anydoc'; used: 'pageecho' }
+  | { state: 'error'; requested: PdfExtractor };
+
 export interface LibraryDocument {
   id: string;
   name: string;

@@ -14,7 +14,7 @@ vi.mock('pdfjs-dist', () => ({
   getDocument: mocks.getDocument,
 }));
 
-import { extractPdfMarkdownPages } from './pdfStream';
+import { extractPdfMarkdown, extractPdfMarkdownPages } from './pdfStream';
 
 describe('AnyDoc PDF extraction', () => {
   beforeEach(() => {
@@ -34,6 +34,18 @@ describe('AnyDoc PDF extraction', () => {
       '# Chapter\n\nText.\n',
     ]);
     expect(mocks.getDocument).not.toHaveBeenCalled();
+  });
+
+  it('reports which extractor produced the text', async () => {
+    mocks.extractPdfWithAnydoc.mockResolvedValue(['# Chapter\n\nText.\n']);
+    const file = new File(['pdf'], 'book.pdf', { type: 'application/pdf' });
+
+    await expect(extractPdfMarkdown(file, 'anydoc')).resolves.toEqual({
+      pages: ['# Chapter\n\nText.\n'],
+      requested: 'anydoc',
+      used: 'anydoc',
+      didFallback: false,
+    });
   });
 
   it('falls back to PDF.js when AnyDoc rejects the file', async () => {
@@ -57,5 +69,28 @@ describe('AnyDoc PDF extraction', () => {
       'Fallback text.\n',
     ]);
     expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it('reports when AnyDoc fell back to PDF.js', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mocks.extractPdfWithAnydoc.mockRejectedValue(new Error('unsupported'));
+    mocks.getDocument.mockReturnValue({
+      promise: Promise.resolve({
+        numPages: 1,
+        getPage: vi.fn().mockResolvedValue({
+          getTextContent: vi.fn().mockResolvedValue({
+            items: [{ str: 'Fallback text.', hasEOL: true }],
+          }),
+        }),
+        destroy: vi.fn(),
+      }),
+    });
+    const file = new File(['pdf'], 'book.pdf', { type: 'application/pdf' });
+
+    await expect(extractPdfMarkdown(file, 'anydoc')).resolves.toMatchObject({
+      requested: 'anydoc',
+      used: 'pageecho',
+      didFallback: true,
+    });
   });
 });

@@ -1,12 +1,18 @@
 import { ChevronDown, Moon, Sun, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { FISH_AUDIO_REFERRAL_URL } from '../projectLinks';
-import type { DeviceSyncStatus, ReaderPreferences, TtsServerStatus } from '../types';
+import type {
+  DeviceSyncStatus,
+  PdfExtractionStatus,
+  ReaderPreferences,
+  TtsServerStatus,
+} from '../types';
 import { FishVoicePicker } from './FishVoicePicker';
 
 interface SettingsPanelProps {
   open: boolean;
   preferences: ReaderPreferences;
+  pdfExtractionStatus: PdfExtractionStatus | null;
   inworldServerStatus: TtsServerStatus;
   fishAudioServerStatus: TtsServerStatus;
   deviceSyncStatus: DeviceSyncStatus;
@@ -28,6 +34,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({
   open,
   preferences,
+  pdfExtractionStatus,
   inworldServerStatus,
   fishAudioServerStatus,
   deviceSyncStatus,
@@ -140,6 +147,18 @@ export function SettingsPanel({
             ? 'Last sync failed — retry by changing a setting or reloading.'
             : 'Waiting to sync with the PageEcho server.';
 
+  const pdfStatusLabel = pdfExtractionStatus?.state === 'extracting'
+    ? `Extracting current PDF with ${pdfExtractionStatus.requested === 'anydoc' ? 'AnyDoc' : 'PageEcho'}…`
+    : pdfExtractionStatus?.state === 'fallback'
+      ? 'AnyDoc could not process this PDF. PageEcho was used instead.'
+      : pdfExtractionStatus?.state === 'error'
+        ? 'The current PDF could not be extracted.'
+        : pdfExtractionStatus?.used === 'anydoc'
+          ? 'Current PDF successfully extracted with AnyDoc.'
+          : pdfExtractionStatus?.used === 'pageecho'
+            ? 'Current PDF extracted with PageEcho.'
+            : 'Open a locally stored PDF to see which extractor was used.';
+
   return (
     <div className="pe-overlay pe-overlay-right" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
@@ -242,6 +261,11 @@ export function SettingsPanel({
           <p className="pe-settings-hint">
             AnyDoc runs locally and may improve columns, headings, tables, and page-number cleanup.
             If it fails, PageEcho automatically uses its original extractor.
+          </p>
+          <p className={`pe-inline-status ${
+            pdfExtractionStatus?.state === 'ready' ? 'is-connected' : ''
+          }`}>
+            {pdfStatusLabel}
           </p>
         </section>
 
