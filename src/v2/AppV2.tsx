@@ -830,7 +830,10 @@ export default function AppV2() {
                   );
                 } else if (document.kind === 'pdf') {
                   const { extractPdfMarkdownPages } = await import('./pdfStream');
-                  const pages = await extractPdfMarkdownPages(sourceFile);
+                  const pages = await extractPdfMarkdownPages(
+                    sourceFile,
+                    preferences.pdfExtractor,
+                  );
                   if (pages.length > 0) {
                     await syncProcessedPages(
                       document.id,
@@ -1145,7 +1148,10 @@ export default function AppV2() {
         // Lazy-load pdf.js only when a PDF opens — keeps first paint light on phones.
         const { extractPdfMarkdownPages } = await import('./pdfStream');
         if (!active) return;
-        const sourcePages = await extractPdfMarkdownPages(loadedSource);
+        const sourcePages = await extractPdfMarkdownPages(
+          loadedSource,
+          preferences.pdfExtractor,
+        );
         if (!active) return;
         if (sourcePages.length === 0) {
           throw new Error(
@@ -1184,7 +1190,7 @@ export default function AppV2() {
     return () => {
       active = false;
     };
-  }, [activeDocument?.id, hydrateReady, updateDocument]);
+  }, [activeDocument?.id, hydrateReady, preferences.pdfExtractor, updateDocument]);
 
   const handleViewportPageCount = useCallback((totalPages: number) => {
     if (!activeDocument || !bookStream) return;

@@ -2,6 +2,8 @@ export type DocumentKind = 'pdf' | 'markdown-zip';
 
 export type ReaderView = 'reading' | 'original' | 'parallel';
 
+export type PdfExtractor = 'pageecho' | 'anydoc';
+
 export interface LibraryDocument {
   id: string;
   name: string;
@@ -52,6 +54,8 @@ export interface ReaderPreferences {
   fontScale: number;
   playbackRate: number;
   volume: number;
+  /** Local PDF-to-Markdown engine. AnyDoc remains opt-in while it is evaluated. */
+  pdfExtractor: PdfExtractor;
   inworldEnabled: boolean;
   inworldVoiceId: string;
   /** @deprecated Kept empty; credentials live on the PageEcho server. */
