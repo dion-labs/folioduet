@@ -1,166 +1,137 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { TTSEngine, type TTSEngineConfig } from '../hooks/TTSEngine';
+import {
+  buildTtsLookAhead,
+  findSpeakableStreamBlock,
+  resolveTtsStreamPosition,
+  type TtsStreamBlock,
+  type TtsStreamPosition,
+} from './ttsStream';
 
 type PlaybackState = 'idle' | 'buffering' | 'playing' | 'paused';
 
 interface UseContinuousTTSOptions {
-  blocks: string[];
-  blocksPageIndex: number;
-  nextPageBlocks: string[];
-  nextBlocksPageIndex: number;
-  pageIndex: number;
-  totalPages: number;
+  streamBlocks: TtsStreamBlock[];
+  pageStarts: number[];
   config: Partial<TTSEngineConfig>;
-  onAutoAdvance: (nextPageIndex: number) => void;
-  onPositionUpdate: (blockIndex: number, wordIndex: number) => void;
-}
-
-function findSpeakableBlock(blocks: string[], startIndex: number): number {
-  for (let index = Math.max(0, startIndex); index < blocks.length; index += 1) {
-    if (blocks[index]?.trim()) return index;
-  }
-  return -1;
-}
-
-export function buildTtsLookAhead(
-  blocks: string[],
-  afterBlockIndex: number,
-  nextPageBlocks: string[],
-): string[] {
-  const lookAhead: string[] = [];
-  const startIndex = Math.max(0, afterBlockIndex + 1);
-
-  for (let index = startIndex; index < blocks.length && lookAhead.length < 2; index += 1) {
-    if (blocks[index]?.trim()) lookAhead.push(blocks[index]);
-  }
-
-  const nextPageBlockIndex = findSpeakableBlock(nextPageBlocks, 0);
-  if (nextPageBlockIndex !== -1) {
-    lookAhead.push(nextPageBlocks[nextPageBlockIndex]);
-  }
-
-  return lookAhead;
+  /** UI notification only: playback has already advanced in the stream. */
+  onPageChange: (pageIndex: number) => void;
+  onPositionUpdate: (position: TtsStreamPosition) => void;
 }
 
 export function useContinuousTTS({
-  blocks,
-  blocksPageIndex,
-  nextPageBlocks,
-  nextBlocksPageIndex,
-  pageIndex,
-  totalPages,
+  streamBlocks,
+  pageStarts,
   config,
-  onAutoAdvance,
+  onPageChange,
   onPositionUpdate,
 }: UseContinuousTTSOptions) {
   const [playbackState, setPlaybackState] = useState<PlaybackState>('idle');
+  const [activeStreamIndex, setActiveStreamIndex] = useState(-1);
   const [activeBlockIndex, setActiveBlockIndex] = useState(-1);
   const [activeWordIndex, setActiveWordIndex] = useState(-1);
   const [lastError, setLastError] = useState<string | null>(null);
 
   const engineRef = useRef<TTSEngine | null>(null);
-  const blocksRef = useRef(blocks);
-  const nextPageBlocksRef = useRef(nextPageBlocks);
-  const nextBlocksPageIndexRef = useRef(nextBlocksPageIndex);
-  const pageIndexRef = useRef(pageIndex);
-  const activeBlockIndexRef = useRef(-1);
-  const totalPagesRef = useRef(totalPages);
-  const pendingAutoPageRef = useRef<number | null>(null);
-  const onAutoAdvanceRef = useRef(onAutoAdvance);
+  const streamBlocksRef = useRef(streamBlocks);
+  const pageStartsRef = useRef(pageStarts);
+  const activeStreamIndexRef = useRef(-1);
+  const playbackPageRef = useRef<number | null>(null);
+  const onPageChangeRef = useRef(onPageChange);
   const onPositionUpdateRef = useRef(onPositionUpdate);
 
-  useEffect(() => {
-    blocksRef.current = blocks;
-    nextPageBlocksRef.current = nextPageBlocks;
-    nextBlocksPageIndexRef.current = nextBlocksPageIndex;
-    pageIndexRef.current = pageIndex;
-    totalPagesRef.current = totalPages;
-    onAutoAdvanceRef.current = onAutoAdvance;
-    onPositionUpdateRef.current = onPositionUpdate;
-  }, [
-    blocks,
-    nextPageBlocks,
-    nextBlocksPageIndex,
-    pageIndex,
-    totalPages,
-    onAutoAdvance,
-    onPositionUpdate,
-  ]);
+  const applyPosition = useCallback((streamIndex: number, wordIndex: number) => {
+    const position = resolveTtsStreamPosition(pageStartsRef.current, streamIndex, wordIndex);
+    activeStreamIndexRef.current = position.streamIndex;
+    setActiveStreamIndex(position.streamIndex);
+    setActiveBlockIndex(position.blockIndex);
+    setActiveWordIndex(position.wordIndex);
 
-  const preloadLookAhead = useCallback((afterBlockIndex: number) => {
-    const engine = engineRef.current;
-    if (!engine) return;
+    if (playbackPageRef.current !== position.pageIndex) {
+      playbackPageRef.current = position.pageIndex;
+      onPageChangeRef.current(position.pageIndex);
+    }
+    return position;
+  }, []);
 
-    const followingPageBlocks = nextBlocksPageIndexRef.current === pageIndexRef.current + 1
-      ? nextPageBlocksRef.current
-      : [];
-    engine.preloadBlocks(buildTtsLookAhead(
-      blocksRef.current,
-      afterBlockIndex,
-      followingPageBlocks,
+  const preloadLookAhead = useCallback((afterStreamIndex: number) => {
+    engineRef.current?.preloadBlocks(buildTtsLookAhead(
+      streamBlocksRef.current,
+      afterStreamIndex,
     ));
   }, []);
 
-  const playBlock = useCallback((requestedBlockIndex: number, requestedWordIndex = 0) => {
+  const playStreamBlock = useCallback((requestedStreamIndex: number, requestedWordIndex = 0) => {
     const engine = engineRef.current;
     if (!engine) return false;
 
-    const blockIndex = findSpeakableBlock(blocksRef.current, requestedBlockIndex);
-    if (blockIndex === -1) return false;
+    const streamIndex = findSpeakableStreamBlock(
+      streamBlocksRef.current,
+      requestedStreamIndex,
+    );
+    if (streamIndex === -1) return false;
 
-    const wordIndex = blockIndex === requestedBlockIndex ? Math.max(0, requestedWordIndex) : 0;
+    const wordIndex = streamIndex === requestedStreamIndex
+      ? Math.max(0, requestedWordIndex)
+      : 0;
+    const block = streamBlocksRef.current[streamIndex];
     setLastError(null);
-    activeBlockIndexRef.current = blockIndex;
-    setActiveBlockIndex(blockIndex);
-    setActiveWordIndex(wordIndex);
     setPlaybackState('buffering');
-    engine.setBlock(blockIndex, blocksRef.current[blockIndex]);
+    applyPosition(streamIndex, wordIndex);
+    engine.setBlock(streamIndex, block.text);
     engine.play(wordIndex);
-    preloadLookAhead(blockIndex);
+    preloadLookAhead(streamIndex);
     setPlaybackState('playing');
     return true;
-  }, [preloadLookAhead]);
+  }, [applyPosition, preloadLookAhead]);
 
   const handleBlockEnd = useCallback(() => {
-    const engine = engineRef.current;
-    if (!engine) return;
-
-    const nextBlockIndex = findSpeakableBlock(blocksRef.current, engine.getBlockIndex() + 1);
-    if (nextBlockIndex !== -1) {
-      playBlock(nextBlockIndex, 0);
+    const nextStreamIndex = findSpeakableStreamBlock(
+      streamBlocksRef.current,
+      activeStreamIndexRef.current + 1,
+    );
+    if (nextStreamIndex !== -1) {
+      // The engine advances immediately. React may paint a different page in
+      // response, but that page change is not part of the playback handshake.
+      playStreamBlock(nextStreamIndex, 0);
       return;
     }
 
-    const nextPageIndex = pageIndexRef.current + 1;
-    const nextPageReady = nextBlocksPageIndexRef.current === nextPageIndex
-      && Boolean(nextPageBlocksRef.current.some((block) => block.trim()));
-    // Prefer live viewport count, but also advance when the next page's
-    // speakable blocks are already prefetched (totalPages can lag packing).
-    if (nextPageIndex < totalPagesRef.current || nextPageReady) {
-      pendingAutoPageRef.current = nextPageIndex;
-      // Keep the last highlight until the next page starts speaking — clearing
-      // here makes the boundary feel like reading stopped (abrupt cut).
-      setPlaybackState('buffering');
-      onAutoAdvanceRef.current(nextPageIndex);
-      return;
-    }
-
-    pendingAutoPageRef.current = null;
-    activeBlockIndexRef.current = -1;
+    activeStreamIndexRef.current = -1;
+    playbackPageRef.current = null;
     setPlaybackState('idle');
+    setActiveStreamIndex(-1);
     setActiveBlockIndex(-1);
     setActiveWordIndex(-1);
-  }, [playBlock]);
+  }, [playStreamBlock]);
+
+  useEffect(() => {
+    streamBlocksRef.current = streamBlocks;
+    pageStartsRef.current = pageStarts;
+    onPageChangeRef.current = onPageChange;
+    onPositionUpdateRef.current = onPositionUpdate;
+
+    if (activeStreamIndexRef.current >= 0) {
+      const position = applyPosition(activeStreamIndexRef.current, activeWordIndex);
+      playbackPageRef.current = position.pageIndex;
+    }
+  }, [
+    activeWordIndex,
+    applyPosition,
+    onPageChange,
+    onPositionUpdate,
+    pageStarts,
+    streamBlocks,
+  ]);
 
   useEffect(() => {
     const engine = new TTSEngine({
       ...config,
       onWordBoundary: (wordIndex) => {
-        setActiveWordIndex(wordIndex);
-        const blockIndex = engineRef.current?.getBlockIndex() ?? -1;
-        if (blockIndex >= 0) {
-          onPositionUpdateRef.current(blockIndex, wordIndex);
-        }
+        const streamIndex = activeStreamIndexRef.current;
+        if (streamIndex < 0) return;
+        const position = applyPosition(streamIndex, wordIndex);
+        onPositionUpdateRef.current(position);
       },
       onEnd: handleBlockEnd,
       onPause: () => setPlaybackState('paused'),
@@ -177,56 +148,16 @@ export function useContinuousTTS({
       engine.stop();
       engineRef.current = null;
     };
-  }, [handleBlockEnd]);
+  }, [applyPosition, handleBlockEnd]);
 
   useEffect(() => {
     engineRef.current?.updateConfig(config);
-  }, [config]);
+    preloadLookAhead(activeStreamIndexRef.current);
+  }, [config, preloadLookAhead, streamBlocks]);
 
-  useEffect(() => {
-    if (blocksPageIndex !== pageIndex) return;
-    preloadLookAhead(activeBlockIndexRef.current);
-  }, [
-    blocks,
-    blocksPageIndex,
-    nextPageBlocks,
-    nextBlocksPageIndex,
-    pageIndex,
-    config,
-    preloadLookAhead,
-  ]);
-
-  useEffect(() => {
-    const pendingPage = pendingAutoPageRef.current;
-    if (
-      pendingPage === null ||
-      pageIndex !== pendingPage ||
-      blocksPageIndex !== pendingPage ||
-      blocks.length === 0
-    ) {
-      return;
-    }
-
-    pendingAutoPageRef.current = null;
-    // Next-page audio is usually preloaded; play on the next frame once React
-    // has committed the new blocks (no artificial 80ms gap).
-    let cancelled = false;
-    const frame = window.requestAnimationFrame(() => {
-      if (cancelled) return;
-      if (!playBlock(0, 0)) {
-        setPlaybackState('idle');
-      }
-    });
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(frame);
-    };
-  }, [blocks, blocksPageIndex, pageIndex, playBlock]);
-
-  const play = useCallback((blockIndex = 0, wordIndex = 0) => {
-    pendingAutoPageRef.current = null;
-    playBlock(blockIndex, wordIndex);
-  }, [playBlock]);
+  const play = useCallback((streamIndex = 0, wordIndex = 0) => {
+    playStreamBlock(streamIndex, wordIndex);
+  }, [playStreamBlock]);
 
   const pause = useCallback(() => {
     engineRef.current?.pause();
@@ -237,10 +168,13 @@ export function useContinuousTTS({
   }, []);
 
   const stop = useCallback(() => {
-    pendingAutoPageRef.current = null;
-    activeBlockIndexRef.current = -1;
+    activeStreamIndexRef.current = -1;
+    playbackPageRef.current = null;
     engineRef.current?.stop();
     setPlaybackState('idle');
+    setActiveStreamIndex(-1);
+    setActiveBlockIndex(-1);
+    setActiveWordIndex(-1);
   }, []);
 
   const primeAudioCache = useCallback((
@@ -258,6 +192,7 @@ export function useContinuousTTS({
     playbackState,
     isPlaying: playbackState === 'playing' || playbackState === 'paused' || playbackState === 'buffering',
     isPaused: playbackState === 'paused',
+    activeStreamIndex,
     activeBlockIndex,
     activeWordIndex,
     lastError,
