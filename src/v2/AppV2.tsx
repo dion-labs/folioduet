@@ -145,9 +145,8 @@ import { useContinuousTTS } from './useContinuousTTS';
 import { useMediaSession, toMediaSessionPlayback } from './useMediaSession';
 import { useMobileFocusChrome } from './useMobileFocusChrome';
 import { debugLog, isDebug, resetDebugFlagCache } from './debug';
+import type { TtsStreamPosition } from './ttsStream';
 import './styles.css';
-
-type PageChangeSource = 'manual' | 'automatic';
 
 interface PendingProgress {
   documentId: string;
@@ -296,7 +295,6 @@ export default function AppV2() {
   const [savedWordIndex, setSavedWordIndex] = useState(() => activeDocument?.activeWordIndex ?? 0);
   const [readerView, setReaderView] = useState<ReaderView>('reading');
   const [pageContent, setPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
-  const [nextPageContent, setNextPageContent] = useState<PageContent>({ pageIndex: -1, blocks: [] });
   const [markdownBlocks, setMarkdownBlocks] = useState<MarkdownBlock[]>([]);
   /** Last fully painted page — kept on screen while the next page prepares. */
   const [paintedPage, setPaintedPage] = useState<{
@@ -340,7 +338,6 @@ export default function AppV2() {
     typeof window === 'undefined' ? null : parseLegalHash(window.location.hash)
   ));
 
-  const pageChangeRef = useRef<(nextPage: number, source: PageChangeSource) => void>(() => undefined);
   const readingWrapRef = useRef<HTMLDivElement | null>(null);
   const pendingProgressRef = useRef<PendingProgress | null>(null);
   const progressTimerRef = useRef<number | null>(null);
@@ -454,22 +451,15 @@ export default function AppV2() {
     });
   }, [persistDocumentProgress]);
 
-  const queueProgress = useCallback((blockIndex: number, wordIndex: number) => {
+  const queueProgress = useCallback((position: TtsStreamPosition) => {
     if (!activeDocumentId) return;
+    const { pageIndex: playbackPage, blockIndex, streamIndex, wordIndex } = position;
     setSavedBlockIndex(blockIndex);
     setSavedWordIndex(wordIndex);
-    const trusted = hasTrustedPageStarts(pageStartsRef.current, pageIndex);
-    const streamIndex = trusted
-      ? (pageStartsRef.current[pageIndex] ?? 0) + blockIndex
-      : null;
-    if (streamIndex !== null) {
-      streamAnchorRef.current = { streamIndex, wordIndex };
-    } else {
-      streamAnchorRef.current = { ...streamAnchorRef.current, wordIndex };
-    }
+    streamAnchorRef.current = { streamIndex, wordIndex };
     pendingProgressRef.current = {
       documentId: activeDocumentId,
-      pageIndex,
+      pageIndex: playbackPage,
       blockIndex,
       wordIndex,
       streamIndex,
@@ -477,7 +467,7 @@ export default function AppV2() {
     if (progressTimerRef.current === null) {
       progressTimerRef.current = window.setTimeout(flushProgress, 450);
     }
-  }, [activeDocumentId, flushProgress, pageIndex]);
+  }, [activeDocumentId, flushProgress]);
 
   const activeCatalogSampleId = activeDocument?.catalogSampleId
     ?? (activeDocument?.isSample ? TELL_TALE_SAMPLE_ID : undefined);
@@ -532,27 +522,6 @@ export default function AppV2() {
     ttsSecrets.fishAudioApiKey,
     ttsSecrets.inworldApiKey,
   ]);
-
-  const tts = useContinuousTTS({
-    blocks: pageContent.blocks,
-    blocksPageIndex: pageContent.pageIndex,
-    nextPageBlocks: nextPageContent.blocks,
-    nextBlocksPageIndex: nextPageContent.pageIndex,
-    pageIndex,
-    totalPages: readerPageCount,
-    config: ttsConfig,
-    onAutoAdvance: (nextPage) => pageChangeRef.current(nextPage, 'automatic'),
-    onPositionUpdate: queueProgress,
-  });
-
-  useEffect(() => {
-    if (!activeCatalogSampleId || !usesFirebaseSync()) return;
-    let cancelled = false;
-    void fetchCatalogAudioClips(activeCatalogSampleId).then((clips) => {
-      if (!cancelled && clips.length > 0) tts.primeAudioCache(clips);
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [activeCatalogSampleId, tts.primeAudioCache]);
 
   useEffect(() => {
     resetDebugFlagCache();
@@ -990,7 +959,6 @@ export default function AppV2() {
     setPairedPdf(null);
     setSource(null);
     setPageContent({ pageIndex: -1, blocks: [] });
-    setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
     // Prefer handoff / saved stream index (stable). Never treat page-local block
     // as a stream index — that snapped refresh resume back toward page 0.
@@ -1304,6 +1272,38 @@ export default function AppV2() {
     onRestorePage: handleViewportRestore,
   });
 
+  const ttsStreamBlocks = useMemo(() => viewportPages.flatMap((page) => (
+    page.map((block) => ({ key: block.key, text: block.text }))
+  )), [viewportPages]);
+
+  const handlePlaybackPageChange = useCallback((nextPage: number) => {
+    // Playback already advanced in the book stream. This callback only keeps
+    // the visible page aligned with the active stream cursor.
+    setPageIndex(nextPage);
+  }, []);
+
+  const tts = useContinuousTTS({
+    streamBlocks: ttsStreamBlocks,
+    pageStarts,
+    config: ttsConfig,
+    onPageChange: handlePlaybackPageChange,
+    onPositionUpdate: queueProgress,
+  });
+
+  const playVisibleBlock = useCallback((blockIndex: number, wordIndex: number) => {
+    const pageStart = pageStartsRef.current[pageIndex] ?? 0;
+    tts.play(pageStart + Math.max(0, blockIndex), wordIndex);
+  }, [pageIndex, tts.play]);
+
+  useEffect(() => {
+    if (!activeCatalogSampleId || !usesFirebaseSync()) return;
+    let cancelled = false;
+    void fetchCatalogAudioClips(activeCatalogSampleId).then((clips) => {
+      if (!cancelled && clips.length > 0) tts.primeAudioCache(clips);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [activeCatalogSampleId, tts.primeAudioCache]);
+
   useEffect(() => {
     pageStartsRef.current = pageStarts;
   }, [pageStarts]);
@@ -1410,13 +1410,6 @@ export default function AppV2() {
       blocks: blocks.map((block) => block.text),
     });
 
-    const nextPage = viewportPages[nextPageIndex + 1];
-    setNextPageContent(nextPage === undefined
-      ? { pageIndex: -1, blocks: [] }
-      : {
-          pageIndex: nextPageIndex + 1,
-          blocks: streamPageToMarkdownBlocks(nextPage).map((block) => block.text),
-        });
   }, [activeDocument?.id, bookStream, pageIndex, viewportPages, viewportReady]);
 
   // After paint: if live prose still overflows the band above the footer,
@@ -1467,7 +1460,7 @@ export default function AppV2() {
     peelOverflowFromPage,
   ]);
 
-  const changePage = useCallback((requestedPage: number, sourceOfChange: PageChangeSource) => {
+  const changePage = useCallback((requestedPage: number) => {
     if (!activeDocument) return;
     // Viewport pack count is source of truth; library totalPages can lag at 1.
     const pageCount = Math.max(
@@ -1481,12 +1474,11 @@ export default function AppV2() {
       requestedPage,
       nextPage,
       pageCount,
-      sourceOfChange,
       documentId: activeDocument.id,
       totalPagesField: activeDocument.totalPages,
       viewportLen: viewportPages.length,
     });
-    if (sourceOfChange !== 'automatic') tts.stop();
+    tts.stop();
     flushProgress();
     setPageIndex(nextPage);
     setSavedBlockIndex(0);
@@ -1507,16 +1499,8 @@ export default function AppV2() {
         pageIndex: nextPage,
         blocks: blocks.map((block) => block.text),
       });
-      const following = viewportPages[nextPage + 1];
-      setNextPageContent(following === undefined
-        ? { pageIndex: -1, blocks: [] }
-        : {
-          pageIndex: nextPage + 1,
-          blocks: streamPageToMarkdownBlocks(following).map((block) => block.text),
-        });
     } else {
       setPageContent({ pageIndex: -1, blocks: [] });
-      setNextPageContent({ pageIndex: -1, blocks: [] });
       setMarkdownBlocks([]);
     }
     persistDocumentProgress(activeDocument.id, {
@@ -1526,10 +1510,6 @@ export default function AppV2() {
       activeStreamIndex: streamIndex,
     });
   }, [activeDocument, bookStream, flushProgress, persistDocumentProgress, tts.stop, viewportPages]);
-
-  useEffect(() => {
-    pageChangeRef.current = changePage;
-  }, [changePage]);
 
   const selectDocument = useCallback((document: LibraryDocument) => {
     tts.stop();
@@ -1686,9 +1666,11 @@ export default function AppV2() {
     const localBlock = Math.max(0, blockIndex);
     const localWord = Math.max(0, wordIndex);
     const trusted = hasTrustedPageStarts(pageStartsRef.current, pageIndex);
-    const streamIndex = trusted
-      ? (pageStartsRef.current[pageIndex] ?? 0) + localBlock
-      : streamAnchorRef.current.streamIndex;
+    const streamIndex = tts.isPlaying && tts.activeStreamIndex >= 0
+      ? tts.activeStreamIndex
+      : trusted
+        ? (pageStartsRef.current[pageIndex] ?? 0) + localBlock
+        : streamAnchorRef.current.streamIndex;
     const target: HandoffTarget = {
       documentId: activeDocument.id,
       pageIndex,
@@ -1713,6 +1695,7 @@ export default function AppV2() {
     savedBlockIndex,
     savedWordIndex,
     tts.activeBlockIndex,
+    tts.activeStreamIndex,
     tts.activeWordIndex,
     tts.isPlaying,
   ]);
@@ -1855,7 +1838,7 @@ export default function AppV2() {
 
   const handleHorizontalSwipe = useCallback((direction: 'prev' | 'next') => {
     if (!activeDocument) return;
-    changePage(pageIndex + (direction === 'next' ? 1 : -1), 'manual');
+    changePage(pageIndex + (direction === 'next' ? 1 : -1));
   }, [activeDocument, changePage, pageIndex]);
 
   const {
@@ -1876,12 +1859,6 @@ export default function AppV2() {
 
   const handlePdfTextExtracted = useCallback((blocks: string[]) => {
     setPageContent({ pageIndex, blocks });
-  }, [pageIndex]);
-
-  const handleNextPdfTextExtracted = useCallback((nextPageIndex: number, blocks: string[]) => {
-    if (nextPageIndex === pageIndex + 1) {
-      setNextPageContent({ pageIndex: nextPageIndex, blocks });
-    }
   }, [pageIndex]);
 
   const handlePdfLoaded = useCallback((totalPages: number) => {
@@ -1906,8 +1883,8 @@ export default function AppV2() {
 
   const handleMediaPlay = useCallback(() => {
     if (tts.isPaused) tts.resume();
-    else tts.play(savedBlockIndex, savedWordIndex);
-  }, [savedBlockIndex, savedWordIndex, tts.isPaused, tts.play, tts.resume]);
+    else playVisibleBlock(savedBlockIndex, savedWordIndex);
+  }, [playVisibleBlock, savedBlockIndex, savedWordIndex, tts.isPaused, tts.resume]);
 
   useMediaSession({
     enabled: Boolean(activeDocument),
@@ -1926,8 +1903,8 @@ export default function AppV2() {
       onPlay: handleMediaPlay,
       onPause: handlePause,
       onStop: handleStop,
-      onPrevious: () => changePage(pageIndex - 1, 'manual'),
-      onNext: () => changePage(pageIndex + 1, 'manual'),
+      onPrevious: () => changePage(pageIndex - 1),
+      onNext: () => changePage(pageIndex + 1),
     },
   });
 
@@ -1995,7 +1972,7 @@ export default function AppV2() {
             activeBlockIndex={holdingPaintedPage ? -1 : displayBlockIndex}
             activeWordIndex={holdingPaintedPage ? -1 : displayWordIndex}
             playbackState={holdingPaintedPage ? 'idle' : tts.playbackState}
-            onWordSelect={(blockIndex, wordIndex) => tts.play(blockIndex, wordIndex)}
+            onWordSelect={playVisibleBlock}
           />
         ) : (
           <div className="pe-reader-state">
@@ -2025,7 +2002,6 @@ export default function AppV2() {
     setPairedPdf(null);
     setDocumentError(null);
     setPageContent({ pageIndex: -1, blocks: [] });
-    setNextPageContent({ pageIndex: -1, blocks: [] });
     setMarkdownBlocks([]);
     setLibraryOpen(true);
   }, [flushProgress, tts]);
@@ -2230,7 +2206,7 @@ export default function AppV2() {
             <>
               <section className="pe-reader-nav" onPointerDown={onChromePointerDown}>
                 <div className="pe-page-controls">
-                  <button className="pe-icon-button" onClick={() => changePage(pageIndex - 1, 'manual')} disabled={pageIndex === 0} aria-label="Previous page">
+                  <button className="pe-icon-button" onClick={() => changePage(pageIndex - 1)} disabled={pageIndex === 0} aria-label="Previous page">
                     <ChevronLeft size={18} />
                   </button>
                   <label>
@@ -2238,13 +2214,13 @@ export default function AppV2() {
                       value={pageIndex + 1}
                       onChange={(event) => {
                         const requested = Number(event.target.value);
-                        if (Number.isFinite(requested)) changePage(requested - 1, 'manual');
+                        if (Number.isFinite(requested)) changePage(requested - 1);
                       }}
                       aria-label="Current page"
                     />
                     <span>of {activeDocument.totalPages}</span>
                   </label>
-                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1, 'manual')} disabled={pageIndex + 1 >= Math.max(viewportPages.length, activeDocument.totalPages)} aria-label="Next page">
+                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1)} disabled={pageIndex + 1 >= Math.max(viewportPages.length, activeDocument.totalPages)} aria-label="Next page">
                     <ChevronRight size={18} />
                   </button>
                 </div>
@@ -2351,8 +2327,7 @@ export default function AppV2() {
                         activeWordIndex={displayWordIndex}
                         scale={Math.max(0.7, preferences.fontScale)}
                         onTextExtracted={handlePdfTextExtracted}
-                        onNextPageTextExtracted={handleNextPdfTextExtracted}
-                        onWordTap={(blockIndex, wordIndex) => tts.play(blockIndex, wordIndex)}
+                        onWordTap={playVisibleBlock}
                         onPageLoadSuccess={handlePdfLoaded}
                         isPlaying={tts.isPlaying}
                         isPaused={tts.isPaused}
@@ -2454,7 +2429,7 @@ export default function AppV2() {
                   </div>
                 </div>
                 <div className="pe-playback-buttons">
-                  <button className="pe-icon-button" onClick={() => changePage(pageIndex - 1, 'manual')} disabled={pageIndex === 0} aria-label="Previous page">
+                  <button className="pe-icon-button" onClick={() => changePage(pageIndex - 1)} disabled={pageIndex === 0} aria-label="Previous page">
                     <ArrowLeft size={17} />
                   </button>
                   {tts.isPlaying && !tts.isPaused ? (
@@ -2467,7 +2442,7 @@ export default function AppV2() {
                       onClick={() => {
                         revealChrome();
                         if (tts.isPaused) tts.resume();
-                        else tts.play(savedBlockIndex, savedWordIndex);
+                        else playVisibleBlock(savedBlockIndex, savedWordIndex);
                       }}
                       disabled={documentLoading || pageContent.pageIndex !== pageIndex}
                       aria-label={tts.isPaused ? 'Resume' : 'Play'}
@@ -2478,7 +2453,7 @@ export default function AppV2() {
                   <button className="pe-icon-button" onClick={handleStop} disabled={!tts.isPlaying} aria-label="Stop">
                     <Square size={16} fill="currentColor" />
                   </button>
-                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1, 'manual')} disabled={pageIndex + 1 >= Math.max(viewportPages.length, activeDocument.totalPages)} aria-label="Next page">
+                  <button className="pe-icon-button" onClick={() => changePage(pageIndex + 1)} disabled={pageIndex + 1 >= Math.max(viewportPages.length, activeDocument.totalPages)} aria-label="Next page">
                     <ArrowRight size={17} />
                   </button>
                   {canOpenChapters && (
@@ -2616,7 +2591,7 @@ export default function AppV2() {
         chapters={locatedChapters}
         currentChapterIndex={currentChapterIndex}
         onJump={(nextPage) => {
-          changePage(nextPage, 'manual');
+          changePage(nextPage);
           setChaptersOpen(false);
           revealChrome();
         }}
