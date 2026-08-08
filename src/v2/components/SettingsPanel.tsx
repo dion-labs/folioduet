@@ -217,6 +217,35 @@ export function SettingsPanel({
         </section>
 
         <section className="pe-settings-section">
+          <div className="pe-setting-heading">
+            <div>
+              <h3>PDF text extraction</h3>
+              <p>Choose how PageEcho turns local PDFs into its reading stream.</p>
+            </div>
+          </div>
+          <div className="pe-segmented pe-segmented-wide">
+            <button
+              type="button"
+              className={preferences.pdfExtractor === 'pageecho' ? 'is-active' : ''}
+              onClick={() => update('pdfExtractor', 'pageecho')}
+            >
+              PageEcho
+            </button>
+            <button
+              type="button"
+              className={preferences.pdfExtractor === 'anydoc' ? 'is-active' : ''}
+              onClick={() => update('pdfExtractor', 'anydoc')}
+            >
+              AnyDoc beta
+            </button>
+          </div>
+          <p className="pe-settings-hint">
+            AnyDoc runs locally and may improve columns, headings, tables, and page-number cleanup.
+            If it fails, PageEcho automatically uses its original extractor.
+          </p>
+        </section>
+
+        <section className="pe-settings-section">
           <button
             type="button"
             className={`pe-advanced-toggle ${advancedOpen ? 'is-open' : ''}`}

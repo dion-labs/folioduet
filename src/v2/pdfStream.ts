@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import { buildBookStream } from './documents';
 import type { BookStreamBlock } from './bookStream';
+import type { PdfExtractor } from './types';
 
 // Vite rewrites this worker URL for the browser bundle. Tests/Node may override
 // GlobalWorkerOptions.workerSrc before calling loadPdfStream.
@@ -87,7 +88,7 @@ export function pdfLinesToParagraphs(lines: string[]): string[] {
  * Extract speakable markdown pages from every PDF page that has a text layer.
  * Blank / image-only pages (covers, photos) are skipped.
  */
-export async function extractPdfMarkdownPages(file: File): Promise<string[]> {
+async function extractPdfMarkdownPagesWithPdfJs(file: File): Promise<string[]> {
   const data = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjsLib.getDocument({ data });
   const pdf = await loadingTask.promise;
@@ -117,14 +118,35 @@ export async function extractPdfMarkdownPages(file: File): Promise<string[]> {
 }
 
 /**
+ * Extract PDF text with the selected local engine. AnyDoc is experimental;
+ * if it cannot convert a file, retain the established PDF.js path as a fallback.
+ */
+export async function extractPdfMarkdownPages(
+  file: File,
+  extractor: PdfExtractor = 'pageecho',
+): Promise<string[]> {
+  if (extractor === 'anydoc') {
+    try {
+      const { extractPdfWithAnydoc } = await import('./anydocPdf');
+      const pages = await extractPdfWithAnydoc(file);
+      if (pages.length > 0) return pages;
+    } catch (error) {
+      console.warn('[PageEcho] AnyDoc extraction failed; using PDF.js.', error);
+    }
+  }
+  return extractPdfMarkdownPagesWithPdfJs(file);
+}
+
+/**
  * Extract speakable text from every PDF page that has a text layer, then
  * build the continuous reading stream (viewport packing happens separately).
  */
 export async function loadPdfStream(
   file: File,
   documentName: string,
+  extractor: PdfExtractor = 'pageecho',
 ): Promise<BookStreamBlock[]> {
-  const sourcePages = await extractPdfMarkdownPages(file);
+  const sourcePages = await extractPdfMarkdownPages(file, extractor);
   if (sourcePages.length === 0) return [];
   return buildBookStream(sourcePages, documentName);
 }

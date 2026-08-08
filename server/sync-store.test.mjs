@@ -24,16 +24,19 @@ describe('SyncStore', () => {
     const saved = await store.setPreferences({
       appearance: 'light',
       fontScale: 1.2,
+      pdfExtractor: 'anydoc',
       inworldEnabled: true,
       inworldApiKey: 'should-not-persist',
     });
     expect(saved.appearance).toBe('light');
     expect(saved.fontScale).toBe(1.2);
+    expect(saved.pdfExtractor).toBe('anydoc');
     expect(saved.inworldEnabled).toBe(true);
     expect(saved).not.toHaveProperty('inworldApiKey');
 
     const loaded = await store.getPreferences();
     expect(loaded.appearance).toBe('light');
+    expect(loaded.pdfExtractor).toBe('anydoc');
     expect(loaded).not.toHaveProperty('inworldApiKey');
   });
 

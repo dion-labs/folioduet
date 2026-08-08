@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { peekBootActiveDocumentId, resolveActiveDocumentId } from './storage';
+import { loadPreferences, peekBootActiveDocumentId, resolveActiveDocumentId } from './storage';
 
 describe('resolveActiveDocumentId', () => {
   afterEach(() => {
@@ -36,5 +36,24 @@ describe('peekBootActiveDocumentId', () => {
     const first = peekBootActiveDocumentId();
     memory.delete('bimodal-active-doc');
     expect(peekBootActiveDocumentId()).toBe(first);
+  });
+});
+
+describe('PDF extractor preference', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps AnyDoc opt-in and defaults unknown values to PageEcho', () => {
+    let saved = JSON.stringify({ pdfExtractor: 'anydoc' });
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => key === 'pageecho-v2-preferences' ? saved : '1',
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+
+    expect(loadPreferences().pdfExtractor).toBe('anydoc');
+    saved = JSON.stringify({ pdfExtractor: 'unknown' });
+    expect(loadPreferences().pdfExtractor).toBe('pageecho');
   });
 });
