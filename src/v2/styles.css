@@ -55,6 +55,36 @@
   box-sizing: border-box;
 }
 
+.pe-seo-fallback {
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.pe-seo-fallback article {
+  width: min(680px, 100%);
+}
+
+.pe-seo-fallback h1 {
+  margin: 12px 0 16px;
+  max-width: 640px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.25rem, 7vw, 4.5rem);
+  line-height: 0.98;
+}
+
+.pe-seo-fallback p,
+.pe-seo-fallback li {
+  color: var(--pe-text-soft);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.pe-seo-fallback a {
+  color: var(--pe-accent-strong);
+}
+
 .pe-login {
   min-height: 100dvh;
   display: grid;

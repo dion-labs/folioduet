@@ -2,6 +2,8 @@
 
 A calmer way to **read and listen**. Import PDF books, keep your place, and follow every word with neural speech — privately synced across your devices.
 
+**[Try PageEcho in your browser](https://pageecho.dionlabs.ai/)**
+
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-dion--labs-ea4aaa.svg)](https://github.com/sponsors/dion-labs)
 
