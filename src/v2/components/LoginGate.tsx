@@ -63,9 +63,7 @@ export function LoginGate({
             </div>
           </div>
           <p className="pe-login-copy">
-            {showRecovery
-              ? 'Guest sign-in didn’t start. You can retry as a guest or continue with Google.'
-              : busyMessage}
+            Import PDF books, listen with word-aligned speech, and keep your place privately synced across devices.
           </p>
           {showRecovery ? (
             <>
@@ -96,10 +94,13 @@ export function LoginGate({
               </p>
             </>
           ) : (
-            <div className="pe-login-btn pe-login-btn-static" aria-hidden="true">
-              <LoaderCircle size={18} className="pe-spin" />
-              Connecting…
-            </div>
+            <>
+              <p className="pe-login-note" role="status">{busyMessage}</p>
+              <div className="pe-login-btn pe-login-btn-static" aria-hidden="true">
+                <LoaderCircle size={18} className="pe-spin" />
+                Connecting…
+              </div>
+            </>
           )}
         </div>
       </div>
