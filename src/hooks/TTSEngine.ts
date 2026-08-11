@@ -90,6 +90,46 @@ interface InworldAudio {
   timestampInfo: any;
 }
 
+const MIN_AUDIBLE_PEAK = 0.002;
+const MIN_AUDIBLE_RMS = 0.0002;
+const MAX_AUDIBILITY_SAMPLES = 120_000;
+
+/**
+ * Reject clips that decode successfully but contain no meaningful PCM signal.
+ * Fish can occasionally return a valid, timestamped MP3 that is entirely
+ * silent; HTMLAudio still advances currentTime in that case, so highlighting
+ * looks healthy even though the listener hears nothing.
+ */
+export function hasAudiblePcm(
+  buffer: {
+    numberOfChannels: number;
+    length: number;
+    getChannelData(channel: number): Float32Array<ArrayBufferLike>;
+  },
+): boolean {
+  if (buffer.numberOfChannels < 1 || buffer.length < 1) return false;
+
+  const stride = Math.max(1, Math.floor(buffer.length / MAX_AUDIBILITY_SAMPLES));
+  let peak = 0;
+  let sumSquares = 0;
+  let sampleCount = 0;
+
+  for (let channelIndex = 0; channelIndex < buffer.numberOfChannels; channelIndex += 1) {
+    const channel = buffer.getChannelData(channelIndex);
+    for (let sampleIndex = 0; sampleIndex < channel.length; sampleIndex += stride) {
+      const sample = channel[sampleIndex];
+      if (!Number.isFinite(sample)) continue;
+      const magnitude = Math.abs(sample);
+      peak = Math.max(peak, magnitude);
+      sumSquares += sample * sample;
+      sampleCount += 1;
+    }
+  }
+
+  if (sampleCount === 0 || peak < MIN_AUDIBLE_PEAK) return false;
+  return Math.sqrt(sumSquares / sampleCount) >= MIN_AUDIBLE_RMS;
+}
+
 /** Word timings we can actually drive highlighting from. */
 export function countUsableWordTimestamps(timestampInfo: unknown): number {
   if (!timestampInfo || typeof timestampInfo !== 'object') return 0;
@@ -708,6 +748,9 @@ export class TTSEngine {
         audioContent: data.audioContent,
         timestampInfo: data.timestampInfo,
       };
+      if (!await this.hasAudibleSignal(audio.audioContent)) {
+        throw new Error('Neural TTS returned a silent audio clip.');
+      }
       this.inworldCache.set(cacheKey, audio);
       const voiceId = provider === 'fish-audio'
         ? (this.config.fishAudioVoiceId || '933563129e564b19a115bedd57b7406a')
@@ -750,6 +793,30 @@ export class TTSEngine {
       ? (this.config.fishAudioVoiceId || '933563129e564b19a115bedd57b7406a')
       : (this.config.inworldVoiceId || 'Ashley');
     return `${this.config.provider || 'inworld'}\u0000${voiceId}\u0000${text}`;
+  }
+
+  /** Decode with the browser's native codec when available; fail open if the
+   * platform cannot inspect MP3 data so playback support is never reduced. */
+  private async hasAudibleSignal(audioContent: string): Promise<boolean> {
+    const scope = globalThis as typeof globalThis & {
+      webkitOfflineAudioContext?: typeof OfflineAudioContext;
+    };
+    const AudioContextCtor = scope.OfflineAudioContext ?? scope.webkitOfflineAudioContext;
+    if (!AudioContextCtor) return true;
+
+    try {
+      const binary = atob(audioContent);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      const context = new AudioContextCtor(1, 1, 44_100);
+      const decoded = await context.decodeAudioData(bytes.buffer);
+      return hasAudiblePcm(decoded);
+    } catch (error) {
+      console.warn('🐝 [TTSEngine] Could not inspect neural audio; trying playback.', error);
+      return true;
+    }
   }
 
   private hasInworldRoute(): boolean {
