@@ -109,6 +109,7 @@ import {
   loadPairedPdf,
   loadPreferences,
   loadSourceFile,
+  normalizeTtsBufferAhead,
   peekBootActiveDocumentId,
   resolveActiveDocumentId,
   saveActiveDocumentId,
@@ -695,6 +696,7 @@ export default function AppV2() {
           const merged = {
             ...localPreferences,
             ...bootstrap.preferences,
+            ttsBufferAhead: normalizeTtsBufferAhead(bootstrap.preferences.ttsBufferAhead),
             inworldApiKey: '',
             fishAudioApiKey: '',
           };
@@ -1307,6 +1309,7 @@ export default function AppV2() {
   const tts = useContinuousTTS({
     streamBlocks: ttsStreamBlocks,
     pageStarts,
+    bufferAhead: preferences.ttsBufferAhead,
     config: ttsConfig,
     onPageChange: handlePlaybackPageChange,
     onPositionUpdate: queueProgress,

@@ -13,6 +13,7 @@ const defaultPreferences = Object.freeze({
   fontScale: 1,
   playbackRate: 1,
   volume: 1,
+  ttsBufferAhead: 3,
   pdfExtractor: 'pageecho',
   inworldEnabled: false,
   inworldVoiceId: 'Ashley',
@@ -36,6 +37,9 @@ function sanitizePreferences(input) {
     fontScale: asNumber(source.fontScale, defaultPreferences.fontScale),
     playbackRate: asNumber(source.playbackRate, defaultPreferences.playbackRate),
     volume: asNumber(source.volume, defaultPreferences.volume),
+    ttsBufferAhead: source.ttsBufferAhead === 1 || source.ttsBufferAhead === 5
+      ? source.ttsBufferAhead
+      : defaultPreferences.ttsBufferAhead,
     pdfExtractor: source.pdfExtractor === 'anydoc' ? 'anydoc' : 'pageecho',
     inworldEnabled: source.inworldEnabled === true,
     inworldVoiceId:

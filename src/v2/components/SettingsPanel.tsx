@@ -270,6 +270,30 @@ export function SettingsPanel({
         </section>
 
         <section className="pe-settings-section">
+          <div className="pe-setting-heading">
+            <div>
+              <h3>Audio buffering</h3>
+              <p>Choose how many upcoming text segments neural TTS prepares.</p>
+            </div>
+          </div>
+          <div className="pe-segmented pe-segmented-wide">
+            {([1, 3, 5] as const).map((count) => (
+              <button
+                key={count}
+                type="button"
+                className={preferences.ttsBufferAhead === count ? 'is-active' : ''}
+                onClick={() => update('ttsBufferAhead', count)}
+              >
+                {count} ahead
+              </button>
+            ))}
+          </div>
+          <p className="pe-settings-hint">
+            More buffering can reduce pauses between passages, but uses more data and TTS requests.
+          </p>
+        </section>
+
+        <section className="pe-settings-section">
           <button
             type="button"
             className={`pe-advanced-toggle ${advancedOpen ? 'is-open' : ''}`}
