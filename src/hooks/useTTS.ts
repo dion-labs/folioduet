@@ -275,6 +275,44 @@ export interface MarkdownBlock {
   globalWordOffset: number; // Sum of tokens in all preceding blocks on this page
 }
 
+const MARKDOWN_TABLE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+
+/** Turn extracted Markdown into clean display/TTS text without exposing syntax. */
+export function markdownToSpeakableText(markdown: string): string {
+  const withoutStructuralRules = markdown
+    .split('\n')
+    .filter((line) => !MARKDOWN_TABLE_RULE.test(line) && !/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line))
+    .join('\n');
+
+  return withoutStructuralRules
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/```[^\n]*\n?/g, ' ')
+    .replace(/~~~[^\n]*\n?/g, ' ')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')
+    .replace(/^\s*\[[^\]]+\]:\s+\S+.*$/gm, ' ')
+    .replace(/<(?:(?:https?:\/\/|mailto:)[^>]+)>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\$\$([\s\S]*?)\$\$/g, '$1')
+    .replace(/\\[()[\]]/g, ' ')
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, '')
+    .replace(/\*\*|__|~~|\*|_/g, '')
+    .replace(/\\([\\`*_[\]{}()#+.!|>~-])/g, '$1')
+    .replace(/\|/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(?:39|x27);/gi, "'")
+    .replace(/\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function parsePageMarkdown(markdown: string): MarkdownBlock[] {
   if (!markdown) return [];
 
@@ -309,9 +347,12 @@ export function parsePageMarkdown(markdown: string): MarkdownBlock[] {
       else if (text.startsWith('* ')) text = text.slice(2);
     }
 
-    // Clean up internal newlines and markdown characters
-    text = text.replace(/\n/g, ' ').trim();
-    text = text.replace(/\*\*|__|\*|_/g, '');
+    text = markdownToSpeakableText(text);
+    if (!text) {
+      currentLines = [];
+      currentBlockType = null;
+      return;
+    }
 
     blocks.push({
       type,
@@ -377,4 +418,3 @@ export function parsePageMarkdown(markdown: string): MarkdownBlock[] {
 
   return decoratedBlocks;
 }
-
