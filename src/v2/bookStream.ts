@@ -1,8 +1,14 @@
-import { tokenizeBlock, type MarkdownBlock } from '../hooks/useTTS';
+import {
+  markdownToInlineRuns,
+  tokenizeBlock,
+  type MarkdownBlock,
+  type MarkdownInlineRun,
+} from '../hooks/useTTS';
 
 export type BookStreamBlock = {
   markdown: string;
   text: string;
+  inlineRuns?: MarkdownInlineRun[];
   type: MarkdownBlock['type'];
   chapterBreak: boolean;
   key: string;
@@ -25,6 +31,7 @@ function sliceBlock(block: BookStreamBlock, text: string, part: number): BookStr
   return {
     ...block,
     text: trimmed,
+    inlineRuns: [{ text: trimmed }],
     markdown: keepHeading ? block.markdown : trimmed,
     chapterBreak: keepHeading,
     key: part === 0 ? block.key : `${block.key}::${part}`,
@@ -289,10 +296,15 @@ export function streamPageToMarkdownBlocks(page: BookStreamBlock[]): MarkdownBlo
   let offset = 0;
   return page.map((block) => {
     const tokens = tokenizeBlock(block.text);
+    const candidateRuns = block.inlineRuns ?? markdownToInlineRuns(block.markdown);
+    const inlineRuns = candidateRuns.map((run) => run.text).join('') === block.text
+      ? candidateRuns
+      : [{ text: block.text }];
     const next: MarkdownBlock = {
       type: block.type,
       text: block.text,
       raw: block.markdown,
+      inlineRuns,
       tokens,
       globalWordOffset: offset,
     };

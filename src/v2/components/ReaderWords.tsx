@@ -1,8 +1,14 @@
 import type { ElementType, ReactNode } from 'react';
-import { tokenizeBlock, type MarkdownBlock, type TextToken } from '../../hooks/useTTS';
+import {
+  tokenizeBlock,
+  type MarkdownBlock,
+  type MarkdownInlineRun,
+  type TextToken,
+} from '../../hooks/useTTS';
 
 interface TokenizedTextProps {
   text: string;
+  inlineRuns?: MarkdownInlineRun[];
   tokens: TextToken[];
   blockIndex: number;
   activeBlockIndex: number;
@@ -13,6 +19,7 @@ interface TokenizedTextProps {
 
 function TokenizedText({
   text,
+  inlineRuns,
   tokens,
   blockIndex,
   activeBlockIndex,
@@ -20,37 +27,54 @@ function TokenizedText({
   playbackState,
   onWordSelect,
 }: TokenizedTextProps) {
-  const children: ReactNode[] = [];
-  let cursor = 0;
+  const renderRun = (run: MarkdownInlineRun, runIndex: number, runStart: number) => {
+    const runEnd = runStart + run.text.length;
+    const children: ReactNode[] = [];
+    let cursor = runStart;
 
-  tokens.forEach((token) => {
-    if (token.startIndex > cursor) {
-      children.push(text.slice(cursor, token.startIndex));
-    }
+    tokens.forEach((token) => {
+      if (token.endIndex <= runStart || token.startIndex >= runEnd) return;
+      if (token.startIndex > cursor) {
+        children.push(text.slice(cursor, Math.min(token.startIndex, runEnd)));
+      }
+      const isActive = blockIndex === activeBlockIndex && token.elementIndex === activeWordIndex;
+      children.push(
+        <span
+          key={`${blockIndex}-${runIndex}-${token.elementIndex}-${token.startIndex}`}
+          className={`pe-word ${isActive ? `is-active is-${playbackState}` : ''}`}
+          onClick={() => onWordSelect(blockIndex, token.elementIndex)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onWordSelect(blockIndex, token.elementIndex);
+            }
+          }}
+        >
+          {text.slice(Math.max(token.startIndex, runStart), Math.min(token.endIndex, runEnd))}
+        </span>,
+      );
+      cursor = Math.min(token.endIndex, runEnd);
+    });
+    if (cursor < runEnd) children.push(text.slice(cursor, runEnd));
 
-    const isActive = blockIndex === activeBlockIndex && token.elementIndex === activeWordIndex;
-    children.push(
-      <span
-        key={`${blockIndex}-${token.elementIndex}-${token.startIndex}`}
-        className={`pe-word ${isActive ? `is-active is-${playbackState}` : ''}`}
-        onClick={() => onWordSelect(blockIndex, token.elementIndex)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onWordSelect(blockIndex, token.elementIndex);
-          }
-        }}
-      >
-        {token.word}
-      </span>,
-    );
-    cursor = token.endIndex;
-  });
+    let content: ReactNode = <>{children}</>;
+    if (run.code) content = <code>{content}</code>;
+    if (run.strong) content = <strong>{content}</strong>;
+    if (run.emphasis) content = <em>{content}</em>;
+    if (run.strikethrough) content = <del>{content}</del>;
+    if (run.href) content = <a href={run.href} target="_blank" rel="noreferrer">{content}</a>;
+    return <span key={`run-${runIndex}-${runStart}`}>{content}</span>;
+  };
 
-  if (cursor < text.length) children.push(text.slice(cursor));
-  return <>{children}</>;
+  const runs = inlineRuns?.length ? inlineRuns : [{ text }];
+  let runStart = 0;
+  return <>{runs.map((run, index) => {
+    const rendered = renderRun(run, index, runStart);
+    runStart += run.text.length;
+    return rendered;
+  })}</>;
 }
 
 interface ReaderWordsProps {
@@ -83,6 +107,7 @@ export function ReaderWords({
             >
               <TokenizedText
                 text={block.text}
+                inlineRuns={block.inlineRuns}
                 tokens={block.tokens}
                 blockIndex={blockIndex}
                 activeBlockIndex={activeBlockIndex}
@@ -118,4 +143,3 @@ export function ReaderWords({
     </div>
   );
 }
-

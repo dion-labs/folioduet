@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { markdownToSpeakableText, parsePageMarkdown } from './useTTS';
+import { markdownToInlineRuns, markdownToSpeakableText, parsePageMarkdown } from './useTTS';
 
 describe('Markdown speech cleanup', () => {
   it('keeps labels and content while removing inline syntax and destinations', () => {
@@ -7,6 +7,12 @@ describe('Markdown speech cleanup', () => {
       '**Bold** _idea_, [the guide](https://example.com), '
       + '![architecture diagram](figure.png), and `system design`.',
     )).toBe('Bold idea, the guide, architecture diagram, and system design.');
+
+    expect(markdownToInlineRuns('**Bold** and [the guide](https://example.com)')).toEqual([
+      { text: 'Bold', strong: true },
+      { text: ' and ' },
+      { text: 'the guide', href: 'https://example.com' },
+    ]);
   });
 
   it('turns an AnyDoc-style Markdown table into plain speakable text', () => {
@@ -22,6 +28,14 @@ describe('Markdown speech cleanup', () => {
       'Project vocabulary',
       'Term Meaning system design',
     ]);
+    expect(blocks[1].raw).toContain('| **Term** |');
+    expect(blocks[1].inlineRuns.map((run) => run.text).join('')).toBe(blocks[1].text);
+    expect(blocks[1].inlineRuns).toContainEqual({ text: 'Term', strong: true });
+    expect(blocks[1].inlineRuns).toContainEqual({
+      text: 'Meaning',
+      href: 'https://example.com/meaning',
+    });
+    expect(blocks[1].inlineRuns).toContainEqual({ text: 'system', code: true });
   });
 
   it('drops structural rules, comments, and bare autolinks', () => {
