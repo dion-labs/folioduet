@@ -57,3 +57,22 @@ describe('PDF extractor preference', () => {
     expect(loadPreferences().pdfExtractor).toBe('pageecho');
   });
 });
+
+describe('TTS look-ahead preference', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('defaults to three segments and accepts the supported buffer sizes', () => {
+    let saved = JSON.stringify({ ttsBufferAhead: 5 });
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => key === 'pageecho-v2-preferences' ? saved : '1',
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+
+    expect(loadPreferences().ttsBufferAhead).toBe(5);
+    saved = JSON.stringify({ ttsBufferAhead: 99 });
+    expect(loadPreferences().ttsBufferAhead).toBe(3);
+  });
+});

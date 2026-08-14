@@ -25,12 +25,14 @@ describe('SyncStore', () => {
       appearance: 'light',
       fontScale: 1.2,
       pdfExtractor: 'anydoc',
+      ttsBufferAhead: 5,
       inworldEnabled: true,
       inworldApiKey: 'should-not-persist',
     });
     expect(saved.appearance).toBe('light');
     expect(saved.fontScale).toBe(1.2);
     expect(saved.pdfExtractor).toBe('anydoc');
+    expect(saved.ttsBufferAhead).toBe(5);
     expect(saved.inworldEnabled).toBe(true);
     expect(saved).not.toHaveProperty('inworldApiKey');
 

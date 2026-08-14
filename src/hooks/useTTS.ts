@@ -269,10 +269,131 @@ export function useTTS({
 
 export interface MarkdownBlock {
   type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'li' | 'blockquote' | 'code' | 'hr';
-  text: string;           // Plain text spoken by TTS
-  raw: string;            // Original raw block markdown
+  text: string;           // Flattened rendered text spoken by TTS
+  raw: string;            // Original untouched block markdown
+  inlineRuns: MarkdownInlineRun[]; // Formatting-aware representation for the reader
   tokens: TextToken[];    // Word tokens for this block
   globalWordOffset: number; // Sum of tokens in all preceding blocks on this page
+}
+
+export interface MarkdownInlineRun {
+  text: string;
+  strong?: boolean;
+  emphasis?: boolean;
+  code?: boolean;
+  strikethrough?: boolean;
+  href?: string;
+}
+
+const MARKDOWN_TABLE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+
+function decodeMarkdownEntities(text: string): string {
+  return text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#(?:39|x27);/gi, "'");
+}
+
+function safeMarkdownHref(value: string): string | undefined {
+  const href = value.trim();
+  return /^(?:https?:\/\/|mailto:)/i.test(href) ? href : undefined;
+}
+
+function mergeInlineRuns(runs: MarkdownInlineRun[]): MarkdownInlineRun[] {
+  const merged: MarkdownInlineRun[] = [];
+  for (const run of runs) {
+    if (!run.text) continue;
+    const previous = merged[merged.length - 1];
+    if (
+      previous
+      && previous.strong === run.strong
+      && previous.emphasis === run.emphasis
+      && previous.code === run.code
+      && previous.strikethrough === run.strikethrough
+      && previous.href === run.href
+    ) {
+      previous.text += run.text;
+    } else {
+      merged.push({ ...run });
+    }
+  }
+  return merged;
+}
+
+function applyInlineMark(
+  runs: MarkdownInlineRun[],
+  mark: Omit<MarkdownInlineRun, 'text'>,
+): MarkdownInlineRun[] {
+  return runs.map((run) => ({ ...run, ...mark }));
+}
+
+function parseInlineMarkdown(markdown: string): MarkdownInlineRun[] {
+  const runs: MarkdownInlineRun[] = [];
+  const pattern = /!\[([^\]]*)\]\(([^)]*)\)|\[([^\]]+)\]\(([^)]*)\)|(`+)([\s\S]*?)\5|\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|~~([\s\S]+?)~~|\*([^*\n]+?)\*|_([^_\n]+?)_/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(markdown)) !== null) {
+    if (match.index > cursor) {
+      runs.push({ text: decodeMarkdownEntities(markdown.slice(cursor, match.index)) });
+    }
+
+    if (match[1] !== undefined) {
+      // PDF image destinations are usually unavailable after extraction; retain useful alt text.
+      runs.push(...applyInlineMark(parseInlineMarkdown(match[1]), { emphasis: true }));
+    } else if (match[3] !== undefined) {
+      runs.push(...applyInlineMark(parseInlineMarkdown(match[3]), {
+        href: safeMarkdownHref(match[4]),
+      }));
+    } else if (match[6] !== undefined) {
+      runs.push({ text: decodeMarkdownEntities(match[6]), code: true });
+    } else if (match[7] !== undefined || match[8] !== undefined) {
+      runs.push(...applyInlineMark(parseInlineMarkdown(match[7] ?? match[8]), { strong: true }));
+    } else if (match[9] !== undefined) {
+      runs.push(...applyInlineMark(parseInlineMarkdown(match[9]), { strikethrough: true }));
+    } else {
+      runs.push(...applyInlineMark(parseInlineMarkdown(match[10] ?? match[11]), { emphasis: true }));
+    }
+    cursor = pattern.lastIndex;
+  }
+
+  if (cursor < markdown.length) {
+    runs.push({ text: decodeMarkdownEntities(markdown.slice(cursor)) });
+  }
+  return mergeInlineRuns(runs);
+}
+
+/** Parse Markdown once: formatting stays in runs, while their text is safe for TTS. */
+export function markdownToInlineRuns(markdown: string): MarkdownInlineRun[] {
+  const normalized = markdown
+    .split('\n')
+    .filter((line) => !MARKDOWN_TABLE_RULE.test(line) && !/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line))
+    .join('\n')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/```[^\n]*\n?/g, ' ')
+    .replace(/~~~[^\n]*\n?/g, ' ')
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')
+    .replace(/^\s*\[[^\]]+\]:\s+\S+.*$/gm, ' ')
+    .replace(/<(?:(?:https?:\/\/|mailto:)[^>]+)>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\$\$([\s\S]*?)\$\$/g, '$1')
+    .replace(/\\[()[\]]/g, ' ')
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, '')
+    .replace(/\\([\\`*_[\]{}()#+.!|>~-])/g, '$1')
+    .replace(/\|/g, ' ')
+    .replace(/\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return parseInlineMarkdown(normalized);
+}
+
+export function markdownToSpeakableText(markdown: string): string {
+  return markdownToInlineRuns(markdown).map((run) => run.text).join('').trim();
 }
 
 export function parsePageMarkdown(markdown: string): MarkdownBlock[] {
@@ -309,14 +430,19 @@ export function parsePageMarkdown(markdown: string): MarkdownBlock[] {
       else if (text.startsWith('* ')) text = text.slice(2);
     }
 
-    // Clean up internal newlines and markdown characters
-    text = text.replace(/\n/g, ' ').trim();
-    text = text.replace(/\*\*|__|\*|_/g, '');
+    const inlineRuns = markdownToInlineRuns(text);
+    text = inlineRuns.map((run) => run.text).join('').trim();
+    if (!text) {
+      currentLines = [];
+      currentBlockType = null;
+      return;
+    }
 
     blocks.push({
       type,
       text,
-      raw
+      raw,
+      inlineRuns,
     });
 
     currentLines = [];
@@ -377,4 +503,3 @@ export function parsePageMarkdown(markdown: string): MarkdownBlock[] {
 
   return decoratedBlocks;
 }
-

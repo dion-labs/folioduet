@@ -4,6 +4,8 @@ export type ReaderView = 'reading' | 'original' | 'parallel';
 
 export type PdfExtractor = 'pageecho' | 'anydoc';
 
+export type TtsBufferAhead = 1 | 3 | 5;
+
 export type PdfExtractionStatus =
   | { state: 'extracting'; requested: PdfExtractor }
   | { state: 'ready'; requested: PdfExtractor; used: PdfExtractor }
@@ -60,6 +62,8 @@ export interface ReaderPreferences {
   fontScale: number;
   playbackRate: number;
   volume: number;
+  /** Number of upcoming stream segments neural TTS may prepare. */
+  ttsBufferAhead: TtsBufferAhead;
   /** Local PDF-to-Markdown engine. AnyDoc remains opt-in while it is evaluated. */
   pdfExtractor: PdfExtractor;
   inworldEnabled: boolean;

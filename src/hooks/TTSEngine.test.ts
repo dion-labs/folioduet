@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { countUsableWordTimestamps, splitTextForInworld, TTSEngine } from './TTSEngine';
+import {
+  countUsableWordTimestamps,
+  hasAudiblePcm,
+  splitTextForInworld,
+  TTSEngine,
+} from './TTSEngine';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -74,6 +79,68 @@ describe('countUsableWordTimestamps', () => {
         wordEndTimeSeconds: [0.2, 0.2],
       },
     })).toBe(1);
+  });
+});
+
+describe('neural audio health', () => {
+  it('distinguishes silent PCM from an audible speech-like signal', () => {
+    const audioBuffer = (samples: Float32Array) => ({
+      numberOfChannels: 1,
+      length: samples.length,
+      getChannelData: () => samples,
+    });
+
+    expect(hasAudiblePcm(audioBuffer(new Float32Array(8_000)))).toBe(false);
+
+    const speech = new Float32Array(8_000);
+    for (let index = 1_000; index < 7_000; index += 1) {
+      speech[index] = Math.sin(index / 8) * 0.04;
+    }
+    expect(hasAudiblePcm(audioBuffer(speech))).toBe(true);
+  });
+
+  it('falls back instead of playing a timestamped but silent neural clip', async () => {
+    const onError = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        audioContent: 'YQ==',
+        timestampInfo: {
+          wordAlignment: {
+            words: ['Silent'],
+            wordStartTimeSeconds: [0],
+            wordEndTimeSeconds: [0.4],
+          },
+        },
+      }),
+    });
+    class SilentOfflineAudioContext {
+      decodeAudioData = vi.fn().mockResolvedValue({
+        numberOfChannels: 1,
+        length: 8_000,
+        getChannelData: () => new Float32Array(8_000),
+      });
+    }
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('OfflineAudioContext', SilentOfflineAudioContext);
+
+    const engine = new TTSEngine({
+      forceSimulation: true,
+      inworldEnabled: true,
+      inworldEndpoint: '/api/tts/synthesize',
+      provider: 'fish-audio',
+      onError,
+    });
+    engine.setBlock(0, 'Silent passage');
+    engine.play();
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0][0]).toMatchObject({
+      message: 'Neural TTS returned a silent audio clip.',
+    });
+    engine.stop();
   });
 });
 

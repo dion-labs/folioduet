@@ -13,6 +13,7 @@ type PlaybackState = 'idle' | 'buffering' | 'playing' | 'paused';
 interface UseContinuousTTSOptions {
   streamBlocks: TtsStreamBlock[];
   pageStarts: number[];
+  bufferAhead: number;
   config: Partial<TTSEngineConfig>;
   /** UI notification only: playback has already advanced in the stream. */
   onPageChange: (pageIndex: number) => void;
@@ -22,6 +23,7 @@ interface UseContinuousTTSOptions {
 export function useContinuousTTS({
   streamBlocks,
   pageStarts,
+  bufferAhead,
   config,
   onPageChange,
   onPositionUpdate,
@@ -55,11 +57,13 @@ export function useContinuousTTS({
   }, []);
 
   const preloadLookAhead = useCallback((afterStreamIndex: number) => {
+    const count = Math.max(1, Math.floor(bufferAhead));
     engineRef.current?.preloadBlocks(buildTtsLookAhead(
       streamBlocksRef.current,
       afterStreamIndex,
-    ));
-  }, []);
+      count,
+    ), count);
+  }, [bufferAhead]);
 
   const playStreamBlock = useCallback((requestedStreamIndex: number, requestedWordIndex = 0) => {
     const engine = engineRef.current;

@@ -243,6 +243,7 @@ export function buildBookStream(sourcePages: string[], documentName: string): Bo
         pushStreamBlock(stream, {
           markdown: `### ${plainTitle}`,
           text: plainTitle,
+          inlineRuns: [{ text: plainTitle }],
           type: 'h3',
           chapterBreak: true,
         });
@@ -253,6 +254,7 @@ export function buildBookStream(sourcePages: string[], documentName: string): Bo
       pushStreamBlock(stream, {
         markdown: blockToMarkdown(block),
         text: block.text,
+        inlineRuns: block.inlineRuns,
         type: block.type,
         chapterBreak: isChapterBreak(block),
       });

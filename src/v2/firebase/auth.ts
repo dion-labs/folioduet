@@ -237,6 +237,7 @@ export async function ensureUserProfile(user: User): Promise<void> {
       fontScale: 1,
       playbackRate: 1,
       volume: 1,
+      ttsBufferAhead: 3,
       inworldEnabled: false,
       inworldVoiceId: 'Ashley',
       fishAudioEnabled: true,

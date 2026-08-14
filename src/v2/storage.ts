@@ -1,5 +1,5 @@
 import { pdfStore } from '../utils/PDFStore';
-import type { LibraryDocument, ReaderPreferences } from './types';
+import type { LibraryDocument, ReaderPreferences, TtsBufferAhead } from './types';
 
 const LIBRARY_KEY = 'bimodal-library';
 const ACTIVE_DOCUMENT_KEY = 'bimodal-active-doc';
@@ -11,6 +11,7 @@ const defaultPreferences: ReaderPreferences = {
   fontScale: 1,
   playbackRate: 1,
   volume: 1,
+  ttsBufferAhead: 3,
   pdfExtractor: 'pageecho',
   inworldEnabled: false,
   inworldVoiceId: 'Ashley',
@@ -40,6 +41,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function asNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+export function normalizeTtsBufferAhead(value: unknown): TtsBufferAhead {
+  return value === 1 || value === 5 ? value : 3;
 }
 
 export function normalizeDocument(value: unknown): LibraryDocument | null {
@@ -159,6 +164,7 @@ export function loadPreferences(): ReaderPreferences {
       fontScale: asNumber(parsed.fontScale, 1),
       playbackRate: asNumber(parsed.playbackRate, 1),
       volume: asNumber(parsed.volume, 1),
+      ttsBufferAhead: normalizeTtsBufferAhead(parsed.ttsBufferAhead),
       pdfExtractor: parsed.pdfExtractor === 'anydoc' ? 'anydoc' : 'pageecho',
       inworldEnabled: parsed.inworldEnabled === true,
       inworldVoiceId: typeof parsed.inworldVoiceId === 'string' ? parsed.inworldVoiceId : defaultPreferences.inworldVoiceId,

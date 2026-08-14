@@ -32,6 +32,12 @@ describe('continuous TTS stream', () => {
     ]);
   });
 
+  it('honors a smaller configured look-ahead window', () => {
+    expect(buildTtsLookAhead(stream('current', 'one', 'two', 'three'), 0, 1)).toEqual([
+      'one',
+    ]);
+  });
+
   it('maps a stream cursor back to UI-only page coordinates', () => {
     expect(resolveTtsStreamPosition([0, 2, 5], 4, 7)).toEqual({
       streamIndex: 4,
