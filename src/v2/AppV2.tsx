@@ -2554,8 +2554,10 @@ export default function AppV2() {
                   <div className="pe-visual-card pe-visual-card-front">
                     <div className="pe-visual-line" />
                     <div className="pe-visual-line is-short" />
-                    <p>Ideas become clearer when text and sound move together.</p>
-                    <div className="pe-visual-highlight">move together</div>
+                    <p>
+                      Ideas become clearer when text and sound{' '}
+                      <span className="pe-visual-highlight">move together</span>
+                    </p>
                     <div className="pe-visual-wave"><i /><i /><i /><i /><i /><i /><i /></div>
                   </div>
                 </div>

@@ -2665,15 +2665,11 @@
 }
 
 .pe-visual-highlight {
-  width: max-content;
-  margin: -43px 0 0 90px;
+  display: inline-block;
   padding: 3px 6px;
   color: #3a2a22;
   background: #ffc98c;
   border-radius: 5px;
-  font-family: Georgia, serif;
-  font-size: 28px;
-  position: relative;
 }
 
 .pe-visual-wave {
