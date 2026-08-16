@@ -22,7 +22,7 @@ async function startTestServer(cache) {
   return `http://127.0.0.1:${address.port}`;
 }
 
-describe('PageEcho cache HTTP API', () => {
+describe('FolioDuet cache HTTP API', () => {
   it('reports health and cache statistics', async () => {
     const cache = {
       isConfigured: true,

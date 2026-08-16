@@ -26,7 +26,7 @@ export function LegalDialog({ docId, onClose }: LegalDialogProps) {
       >
         <div className="pe-dialog-header">
           <div>
-            <span className="pe-eyebrow">PageEcho</span>
+            <span className="pe-eyebrow">FolioDuet</span>
             <h2 id="legal-dialog-title">{doc.title}</h2>
           </div>
           <button className="pe-icon-button" onClick={onClose} aria-label="Close">

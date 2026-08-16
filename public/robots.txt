@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://pageecho.dionlabs.ai/sitemap.xml
+Sitemap: https://folioduet.dionlabs.ai/sitemap.xml

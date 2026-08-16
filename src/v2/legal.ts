@@ -16,14 +16,14 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDoc> = {
       {
         heading: 'The service',
         body: [
-          'PageEcho is a self-serve reading and listening tool provided by Dion Labs (“we”). By using the app you agree to these terms.',
+          'FolioDuet is a self-serve reading and listening tool provided by Dion Labs (“we”). By using the app you agree to these terms.',
           'The service is provided as-is, without warranties of any kind, to the extent permitted by law.',
         ],
       },
       {
         heading: 'Your content and copyright',
         body: [
-          'You are responsible for the files you import, convert, store, or listen to with PageEcho.',
+          'You are responsible for the files you import, convert, store, or listen to with FolioDuet.',
           'You represent that you have all rights needed to upload and process those materials (for example, that you own them, have a license, or otherwise have lawful permission).',
           'We do not review uploads for copyright status. If you are not allowed to use a file, do not import it.',
           'If we receive a valid notice that content infringes someone’s rights, we may remove it and, where appropriate, suspend the related account.',
@@ -39,7 +39,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDoc> = {
       {
         heading: 'Acceptable use',
         body: [
-          'Do not abuse the service, attempt to break security, scrape other users’ data, or use PageEcho to distribute infringing or unlawful material.',
+          'Do not abuse the service, attempt to break security, scrape other users’ data, or use FolioDuet to distribute infringing or unlawful material.',
         ],
       },
       {
@@ -58,7 +58,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDoc> = {
       {
         heading: 'What we store',
         body: [
-          'If you sign in, we store account identifiers (such as your Google auth uid and basic profile fields) plus your PageEcho library metadata, reading progress, preferences, and processed book text needed to read across devices.',
+          'If you sign in, we store account identifiers (such as your Google auth uid and basic profile fields) plus your FolioDuet library metadata, reading progress, preferences, and processed book text needed to read across devices.',
           'Original PDF files stay on the device that imported them unless you separately choose to keep a local copy elsewhere. We do not use Firebase Storage for originals in the current design.',
           'Optional API keys you save are stored privately under your account and loaded only into your browser session.',
         ],

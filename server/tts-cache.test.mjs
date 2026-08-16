@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createTtsCacheKey, TtsCache } from './tts-cache.mjs';
 
 const request = {
-  text: 'A persistent sentence for PageEcho.',
+  text: 'A persistent sentence for FolioDuet.',
   voiceId: 'Ashley',
   modelId: 'inworld-tts-2',
   timestampType: 'WORD',

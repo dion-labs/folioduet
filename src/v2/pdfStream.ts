@@ -140,7 +140,7 @@ export async function extractPdfMarkdown(
         return { pages, requested: extractor, used: 'anydoc', didFallback: false };
       }
     } catch (error) {
-      console.warn('[PageEcho] AnyDoc extraction failed; using PDF.js.', error);
+      console.warn('[FolioDuet] AnyDoc extraction failed; using PDF.js.', error);
     }
   }
   return {

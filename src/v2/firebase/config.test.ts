@@ -16,7 +16,7 @@ describe('resolveAuthDomain', () => {
   it('keeps the Firebase authDomain when no auth helper proxy is available', () => {
     expect(
       resolveAuthDomain('dionlabs-fe92e.firebaseapp.com', {
-        host: 'pageecho.dionlabs.ai',
+        host: 'folioduet.dionlabs.ai',
         proxyEnabled: false,
       }),
     ).toBe('dionlabs-fe92e.firebaseapp.com');
@@ -25,10 +25,10 @@ describe('resolveAuthDomain', () => {
   it('rewrites to the site host when /__/auth is proxied', () => {
     expect(
       resolveAuthDomain('dionlabs-fe92e.firebaseapp.com', {
-        host: 'pageecho.dionlabs.ai',
+        host: 'folioduet.dionlabs.ai',
         proxyEnabled: true,
       }),
-    ).toBe('pageecho.dionlabs.ai');
+    ).toBe('folioduet.dionlabs.ai');
   });
 
   it('never rewrites raw IP hosts', () => {

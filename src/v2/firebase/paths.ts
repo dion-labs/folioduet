@@ -1,9 +1,9 @@
 /**
- * PageEcho Firestore namespace inside shared project `dionlabs-fe92e`.
+ * FolioDuet Firestore namespace inside shared project `dionlabs-fe92e`.
  *
  * Same Firebase project as the Dion Labs blog/landing — separate *codebase*.
  * Blog still owns root collections (`blog_stats`, `feature_stats`, `leads`).
- * PageEcho owns everything under this top-level collection:
+ * FolioDuet owns everything under this legacy top-level collection:
  *
  *   pageecho/{uid}
  *     secrets/keys

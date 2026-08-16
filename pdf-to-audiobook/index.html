@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF to Audiobook Reader — Listen in Your Browser | FolioDuet</title>
+    <meta
+      name="description"
+      content="Import a text-based PDF, hear natural narration, and follow each spoken word on screen. Try the sample or use your own PDF without creating an account."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#171a18" />
+    <link rel="canonical" href="https://folioduet.dionlabs.ai/pdf-to-audiobook/" />
+    <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+    <link rel="stylesheet" href="/seo/styles.css" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="FolioDuet" />
+    <meta property="og:title" content="Turn a PDF into an audiobook-style read-along | FolioDuet" />
+    <meta
+      property="og:description"
+      content="Listen to a text-based PDF in your browser while FolioDuet highlights each spoken word. Try the sample without an account."
+    />
+    <meta property="og:url" content="https://folioduet.dionlabs.ai/pdf-to-audiobook/" />
+    <meta property="og:image" content="https://folioduet.dionlabs.ai/seo/folioduet-reader.jpg" />
+    <meta
+      property="og:image:alt"
+      content="The FolioDuet reader showing The Tell-Tale Heart with the word impossible highlighted"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PDF to Audiobook Reader | FolioDuet" />
+    <meta
+      name="twitter:description"
+      content="Hear a PDF as streaming narration and keep your place with synchronized word highlighting."
+    />
+    <meta name="twitter:image" content="https://folioduet.dionlabs.ai/seo/folioduet-reader.jpg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "name": "FolioDuet",
+            "url": "https://folioduet.dionlabs.ai/",
+            "description": "An open-source browser reader for text-based PDFs with streaming narration and synchronized word highlighting.",
+            "applicationCategory": "EducationalApplication",
+            "operatingSystem": "Web",
+            "isAccessibleForFree": true,
+            "sameAs": "https://github.com/dion-labs/pageecho"
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Can I turn a PDF into an audiobook for free?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "You can try FolioDuet as a guest and import a text-based PDF without paying or creating an account. Sponsored Fish Audio availability may change, and you can configure a supported provider or use the system voice when available."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I download an MP3?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. FolioDuet currently streams narration inside the reader and does not export MP3 or M4B files."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does it work with scanned PDFs?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "FolioDuet needs a usable text layer in the PDF. It does not currently promise OCR for image-only scans."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Do I need an account?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No account is required to try the sample or import a PDF locally. Signing in adds processed-text, library, preference, and reading-progress sync."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is my PDF uploaded?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "The original PDF stays on the device that imported it. Extracted text may sync under a signed-in account, and text selected for neural narration is sent to the configured speech provider."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can I continue on another device?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "When signed in, FolioDuet can sync processed text and reading progress. The original PDF binary is not copied to the other device."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="FolioDuet home">
+        <img src="/icons/favicon.svg" alt="" width="34" height="34" />
+        <span class="brand-copy">
+          <strong>FolioDuet</strong>
+          <small>Read with every sense</small>
+        </span>
+      </a>
+      <a class="header-link" href="/read-and-listen-to-pdf/">Read and listen together</a>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">PDF to audiobook-style reading</p>
+          <h1 id="page-title">Turn a PDF into an audiobook-style read-along</h1>
+          <p class="lede">
+            Import a text-based PDF, press play, and follow every spoken word as it is highlighted.
+            No account required to try it.
+          </p>
+          <div class="actions">
+            <a
+              class="button button-primary"
+              href="/?intent=import&amp;utm_source=folioduet_seo&amp;utm_medium=organic&amp;utm_campaign=pdf_to_audiobook&amp;utm_content=choose_pdf"
+            >Choose a PDF</a>
+            <a
+              class="button button-secondary"
+              href="/?intent=demo&amp;utm_source=folioduet_seo&amp;utm_medium=organic&amp;utm_campaign=pdf_to_audiobook&amp;utm_content=play_demo"
+            >Play the 30-second demo</a>
+          </div>
+          <p class="privacy-note">
+            Original PDFs stay on this device. Neural playback sends the text being narrated to
+            the selected speech provider. <a href="/#privacy">Privacy details</a>
+          </p>
+        </div>
+        <figure>
+          <div class="reader-frame">
+            <img
+              src="/seo/folioduet-reader.jpg"
+              width="1280"
+              height="800"
+              fetchpriority="high"
+              alt="FolioDuet displaying The Tell-Tale Heart with the word impossible highlighted on page two"
+            />
+          </div>
+          <figcaption class="visual-caption">
+            A real FolioDuet reader view: the spoken word is highlighted within the original reading flow.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section class="proof" aria-labelledby="proof-title">
+        <h2 id="proof-title">What the demo shows</h2>
+        <p class="transcript">
+          <strong>Visual transcript:</strong> FolioDuet opens a book beside its library, presents page
+          two on a paper-like reading surface, and highlights “impossible” within the narrated passage.
+          Page controls and reading progress stay in the same view.
+        </p>
+      </section>
+
+      <section class="section" aria-labelledby="steps-title">
+        <div class="section-heading">
+          <p class="eyebrow">Three simple steps</p>
+          <h2 id="steps-title">From document to listening</h2>
+          <p>There is no conversion queue or separate audio file to manage.</p>
+        </div>
+        <div class="card-grid">
+          <article class="step">
+            <span class="step-number">1</span>
+            <h3>Choose a PDF</h3>
+            <p>Pick a text-based PDF from your device. You can begin in a guest session.</p>
+          </article>
+          <article class="step">
+            <span class="step-number">2</span>
+            <h3>FolioDuet extracts the text</h3>
+            <p>The reader turns the PDF’s selectable text layer into a continuous reading surface.</p>
+          </article>
+          <article class="step">
+            <span class="step-number">3</span>
+            <h3>Listen and follow</h3>
+            <p>Start narration, watch the current word, and let the reader advance through the pages.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="difference-title">
+        <div class="section-heading">
+          <p class="eyebrow">Built for the reading moment</p>
+          <h2 id="difference-title">An audiobook feeling without leaving the page</h2>
+        </div>
+        <div class="card-grid">
+          <article class="feature-card">
+            <span class="feature-icon" aria-hidden="true">Aa</span>
+            <h3>Word-level synchronization</h3>
+            <p>The active word stays visible while narration moves through each passage.</p>
+          </article>
+          <article class="feature-card">
+            <span class="feature-icon" aria-hidden="true">→</span>
+            <h3>Continuous reading</h3>
+            <p>Page progression and saved position make long documents feel like one listening session.</p>
+          </article>
+          <article class="feature-card">
+            <span class="feature-icon" aria-hidden="true">⌁</span>
+            <h3>Guest first, sync later</h3>
+            <p>Try it in the browser, then sign in only if you want your processed library and place across devices.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section split" aria-labelledby="fit-title">
+        <div class="section-copy">
+          <p class="eyebrow">Good fits</p>
+          <h2 id="fit-title">Documents worth spending time with</h2>
+          <p>
+            FolioDuet is designed for material you want to hear without giving up the structure and
+            context of a page.
+          </p>
+          <ul class="fit-list">
+            <li>Long reports and research papers</li>
+            <li>Text-based books and manuscripts</li>
+            <li>Course readings with a selectable text layer</li>
+            <li>Drafts you want to review by ear and eye</li>
+          </ul>
+        </div>
+        <div class="section-copy">
+          <p class="eyebrow">Known limits</p>
+          <h2>Clear boundaries, before you import</h2>
+          <ul class="limit-list">
+            <li>Image-only scans need OCR elsewhere first; FolioDuet requires a usable PDF text layer.</li>
+            <li>Extraction quality depends on the order and quality of the PDF’s embedded text.</li>
+            <li>Neural speech needs a network connection and availability from the configured provider.</li>
+            <li>Voice choice and native fallback behavior vary by browser and provider.</li>
+          </ul>
+          <p class="notice">
+            <strong>Listening, not file export:</strong> FolioDuet streams narration while you read. It
+            does not currently export an MP3 or M4B file.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="privacy-title">
+        <div class="section-heading">
+          <p class="eyebrow">Privacy in plain language</p>
+          <h2 id="privacy-title">The original, the reading copy, and the spoken text are different</h2>
+        </div>
+        <div class="privacy-grid">
+          <article class="privacy-item">
+            <strong>Your original PDF</strong>
+            <p>The binary file remains on the device where you imported it.</p>
+          </article>
+          <article class="privacy-item">
+            <strong>Extracted reading text</strong>
+            <p>It stays local as a guest. If you sign in, processed text and progress may sync under your account.</p>
+          </article>
+          <article class="privacy-item">
+            <strong>Text being narrated</strong>
+            <p>Neural playback sends the selected passage to the speech provider you configure or use.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section split" aria-labelledby="open-title">
+        <div class="section-copy">
+          <p class="eyebrow">Open source</p>
+          <h2 id="open-title">See how the reader works</h2>
+        </div>
+        <div class="section-copy">
+          <p>
+            FolioDuet’s source is public under the MIT License. Inspect the reader, run your own copy,
+            or contribute on <a class="inline-link" href="https://github.com/dion-labs/pageecho">GitHub</a>.
+          </p>
+          <p>
+            Prefer to keep the text in view from the start? See how to
+            <a class="inline-link" href="/read-and-listen-to-pdf/">read and listen to a PDF at the same time</a>.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="faq-title">
+        <div class="section-heading">
+          <p class="eyebrow">Frequently asked questions</p>
+          <h2 id="faq-title">PDF to audiobook questions</h2>
+        </div>
+        <div class="faq-list">
+          <details>
+            <summary>Can I turn a PDF into an audiobook for free?</summary>
+            <p>
+              You can try FolioDuet as a guest and import a text-based PDF without paying or creating
+              an account. Sponsored Fish Audio availability may change. You can configure a supported
+              provider or use a system voice when available; this is not a promise of permanently
+              unlimited neural narration.
+            </p>
+          </details>
+          <details>
+            <summary>Can I download an MP3?</summary>
+            <p>No. Playback currently streams inside the reader; FolioDuet does not export MP3 or M4B files.</p>
+          </details>
+          <details>
+            <summary>Does it work with scanned PDFs?</summary>
+            <p>
+              It works with PDFs that contain a usable text layer. OCR for image-only scans is not
+              currently promised.
+            </p>
+          </details>
+          <details>
+            <summary>Do I need an account?</summary>
+            <p>
+              No account is required for the sample or a local import. Signing in adds processed-text,
+              library, preferences, and reading-progress sync.
+            </p>
+          </details>
+          <details>
+            <summary>Is my PDF uploaded?</summary>
+            <p>
+              The original PDF stays on the import device. Extracted text may sync when you sign in,
+              and text selected for neural narration is processed by your configured speech provider.
+            </p>
+          </details>
+          <details>
+            <summary>Can I continue on another device?</summary>
+            <p>
+              Yes, after signing in, processed text and your reading position can sync. The original PDF
+              binary is not copied to the other device.
+            </p>
+          </details>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <div>
+          <p class="eyebrow">Ready when you are</p>
+          <h2 id="closing-title">Listen to your PDF without losing the page</h2>
+        </div>
+        <div class="actions">
+          <a
+            class="button button-primary"
+            href="/?intent=import&amp;utm_source=folioduet_seo&amp;utm_medium=organic&amp;utm_campaign=pdf_to_audiobook&amp;utm_content=final_import"
+          >Listen to your PDF</a>
+          <a
+            class="button button-secondary"
+            href="/?intent=demo&amp;utm_source=folioduet_seo&amp;utm_medium=organic&amp;utm_campaign=pdf_to_audiobook&amp;utm_content=final_demo"
+          >Try the sample</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <span>© 2026 Dion Labs · FolioDuet is open-source software.</span>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="/#privacy">Privacy</a>
+        <a href="https://github.com/dion-labs/pageecho">GitHub</a>
+        <a href="/read-and-listen-to-pdf/">Read and listen in sync</a>
+      </nav>
+    </footer>
+  </body>
+</html>

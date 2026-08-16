@@ -1,8 +1,10 @@
-# PageEcho
+# FolioDuet
 
 A calmer way to **read and listen**. Import PDF books, keep your place, and follow every word with neural speech — privately synced across your devices.
 
-**[Try PageEcho in your browser](https://pageecho.dionlabs.ai/)**
+FolioDuet, formerly PageEcho, is keeping its existing website and repository addresses during the infrastructure migration.
+
+**[Try FolioDuet in your browser](https://folioduet.dionlabs.ai/)**
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-dion--labs-ea4aaa.svg)](https://github.com/sponsors/dion-labs)
@@ -51,6 +53,8 @@ Browser
   └── Analytics only after consent
 ```
 
+The `pageecho` Firestore path is a stable legacy compatibility namespace and is intentionally unchanged by the product rename.
+
 The optional Node server (`npm run dev` / `npm start`) is a **legacy/local** TTS cache + sync helper. Production open-source hosting is the static client + Firebase.
 
 ## Configuration
@@ -76,7 +80,9 @@ Production is **Cloudflare Pages** connected to this GitHub repo:
 - `VITE_FISH_AUDIO_SPONSOR_KEY` (or `FISH_AUDIO_API_KEY`) is required for Fish TTS — the SPA calls `/api/tts/synthesize`, served by a **Pages Function** (Fish’s API has no browser CORS)
 - Disable automatic **preview / PR** deployments in Pages settings if you only want `main` live
 
-Attach a custom domain, then add that host to Firebase Auth authorized domains.
+Attach `folioduet.dionlabs.ai` as the canonical custom domain, keep
+`pageecho.dionlabs.ai` attached for the path-preserving legacy redirect, then add
+the canonical host to Firebase Auth authorized domains.
 
 ## License
 

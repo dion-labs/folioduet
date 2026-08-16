@@ -19,11 +19,11 @@ let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
-  console.log('[PageEcho dev] Shutting down unified dev server...');
+  console.log('[FolioDuet dev] Shutting down unified dev server...');
   try {
     await runtime.shutdown();
   } catch (error) {
-    console.error('[PageEcho dev] Error during shutdown:', error);
+    console.error('[FolioDuet dev] Error during shutdown:', error);
   }
   process.exit(0);
 }

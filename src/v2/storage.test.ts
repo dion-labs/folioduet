@@ -44,7 +44,7 @@ describe('PDF extractor preference', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps AnyDoc opt-in and defaults unknown values to PageEcho', () => {
+  it('keeps AnyDoc opt-in and defaults unknown values to the FolioDuet extractor', () => {
     let saved = JSON.stringify({ pdfExtractor: 'anydoc' });
     vi.stubGlobal('localStorage', {
       getItem: (key: string) => key === 'pageecho-v2-preferences' ? saved : '1',

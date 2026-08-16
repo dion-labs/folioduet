@@ -9,7 +9,7 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    // --- PageEcho (namespaced product) ---
+    // --- FolioDuet (legacy pageecho namespace) ---
     match /pageecho/{uid} {
       // Shared catalog lives at pageecho/catalog — not a user uid.
       allow read, write: if uid != 'catalog' && isOwner(uid);

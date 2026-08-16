@@ -103,7 +103,7 @@ export async function ensureAnonymousSession(): Promise<User | null> {
   if (auth.currentUser) return auth.currentUser;
   const result = await signInAnonymously(auth);
   await ensureUserProfile(result.user).catch((error) => {
-    console.warn('[PageEcho] Anonymous profile sync failed', error);
+    console.warn('[FolioDuet] Anonymous profile sync failed', error);
   });
   await trackEvent('login', { method: 'anonymous' });
   return result.user;
@@ -120,11 +120,14 @@ export async function completeGoogleRedirectIfPresent(): Promise<User | null> {
       return null;
     }
     await ensureUserProfile(result.user).catch((error) => {
-      console.warn('[PageEcho] Profile sync failed after redirect login', error);
+      console.warn('[FolioDuet] Profile sync failed after redirect login', error);
     });
     await trackEvent('login', {
       method: result.user.isAnonymous ? 'anonymous-redirect' : 'google-redirect',
     });
+    if (!result.user.isAnonymous) {
+      await trackEvent('signup_complete', { method: 'google' });
+    }
     clearFirebaseAuthHandlerUrl();
     return result.user;
   } catch (error) {
@@ -136,9 +139,10 @@ export async function completeGoogleRedirectIfPresent(): Promise<User | null> {
 
 async function finishGoogleUser(user: User): Promise<User> {
   await ensureUserProfile(user).catch((error) => {
-    console.warn('[PageEcho] Profile sync failed after Google login', error);
+    console.warn('[FolioDuet] Profile sync failed after Google login', error);
   });
   await trackEvent('login', { method: 'google' });
+  await trackEvent('signup_complete', { method: 'google' });
   clearFirebaseAuthHandlerUrl();
   return user;
 }
