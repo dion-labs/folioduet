@@ -20,7 +20,7 @@ function memoryStorage(): Storage {
 describe('attribution', () => {
   it('captures bounded UTM fields and only the referrer hostname', () => {
     expect(deriveAttribution(
-      'https://pageecho.dionlabs.ai/?utm_source=x&utm_medium=social&utm_campaign=launch&utm_content=video#reader',
+      'https://folioduet.dionlabs.ai/?utm_source=x&utm_medium=social&utm_campaign=launch&utm_content=video#reader',
       'https://news.ycombinator.com/item?id=123',
     )).toEqual({
       source: 'x',
@@ -34,16 +34,16 @@ describe('attribution', () => {
   });
 
   it('derives referral/direct traffic and drops dynamic-looking paths', () => {
-    expect(deriveAttribution('https://pageecho.dionlabs.ai/read/jane@example.com', ''))
+    expect(deriveAttribution('https://folioduet.dionlabs.ai/read/jane@example.com', ''))
       .toMatchObject({ source: 'direct', medium: 'none', landingPath: '/' });
-    expect(deriveAttribution('https://pageecho.dionlabs.ai/v2', 'https://google.com/search?q=pdf'))
+    expect(deriveAttribution('https://folioduet.dionlabs.ai/v2', 'https://google.com/search?q=pdf'))
       .toMatchObject({ source: 'google.com', medium: 'referral', landingPath: '/v2' });
   });
 
   it('keeps the original first touch on later visits', () => {
     const storage = memoryStorage();
-    const first = deriveAttribution('https://pageecho.dionlabs.ai/?utm_source=fish');
-    const later = deriveAttribution('https://pageecho.dionlabs.ai/?utm_source=google');
+    const first = deriveAttribution('https://folioduet.dionlabs.ai/?utm_source=fish');
+    const later = deriveAttribution('https://folioduet.dionlabs.ai/?utm_source=google');
 
     expect(resolveFirstTouchAttribution(first, storage)).toEqual(first);
     expect(resolveFirstTouchAttribution(later, storage)).toEqual(first);

@@ -3,7 +3,7 @@
 Status: drafts only. Nothing in this file has been published or sent.
 Prepared: 2026-08-16.
 
-Product name: **FolioDuet**. Keep the current `pageecho.dionlabs.ai` and `github.com/dion-labs/pageecho` links until the external infrastructure migration is complete.
+Product name: **FolioDuet**. Use `folioduet.dionlabs.ai` as the canonical product URL. Keep `pageecho.dionlabs.ai` as a permanent migration redirect and retain the existing `github.com/dion-labs/pageecho` repository link.
 
 ## 25-second demo video
 
@@ -46,7 +46,7 @@ Attach the video. A link can go in the first reply if preserving a clean video-f
 
 ### First reply
 
-> Try it: https://pageecho.dionlabs.ai/?utm_source=x&utm_medium=social&utm_campaign=activation_launch
+> Try it: https://folioduet.dionlabs.ai/?utm_source=x&utm_medium=social&utm_campaign=activation_launch
 >
 > Source: https://github.com/dion-labs/pageecho
 >
@@ -71,7 +71,7 @@ Post only after the tracked demo and first-run changes are live.
 > The reader uses Fish Audio narration and follows the spoken word on screen. Original PDFs stay on the importing device; text being narrated is processed by the configured TTS provider, and signed-in users can sync extracted reading text/progress.
 >
 > 25-second demo: `[VIDEO OR DIRECT VIDEO LINK]`
-> Try it: https://pageecho.dionlabs.ai/?utm_source=hermes&utm_medium=community&utm_campaign=activation_launch
+> Try it: https://folioduet.dionlabs.ai/?utm_source=hermes&utm_medium=community&utm_campaign=activation_launch
 > Source: https://github.com/dion-labs/pageecho
 >
 > I am looking for very specific feedback: where do you hesitate between landing, playing the demo, and starting your own PDF? If you try it, please tell me the browser/device and whether the PDF had selectable text.
@@ -89,7 +89,7 @@ Submit to `api-showcase`, not `voice-models`, unless the post is specifically ab
 > I built an open-source browser reader that lets someone import a text-based PDF, press play, and follow the current word while Fish Audio narrates it. I am using Fish's timestamped TTS response to keep playback and the reading surface aligned.
 >
 > Demo (25 sec): `[ATTACH VIDEO]`
-> Try it: https://pageecho.dionlabs.ai/?utm_source=fishaudio&utm_medium=community&utm_campaign=activation_launch
+> Try it: https://folioduet.dionlabs.ai/?utm_source=fishaudio&utm_medium=community&utm_campaign=activation_launch
 > Source: https://github.com/dion-labs/pageecho
 >
 > No account is required to try it. The original PDF stays on the importing device; text selected for neural playback is sent for TTS processing.
