@@ -58,7 +58,7 @@ export function LoginGate({
               <BookOpen />
             </div>
             <div className="pe-login-brand-text">
-              <p className="pe-login-kicker">PAGE ECHO</p>
+              <p className="pe-login-kicker">FOLIODUET</p>
               <h1>Read with your ears</h1>
             </div>
           </div>

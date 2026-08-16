@@ -22,7 +22,7 @@ export class AppErrorBoundary extends Component<Props, State> {
       <div className="pe-app" data-theme="dark">
         <div className="pe-login">
           <div className="pe-login-card">
-            <p className="pe-login-kicker">PAGE ECHO</p>
+            <p className="pe-login-kicker">FOLIODUET</p>
             <h1>Something broke</h1>
             <p className="pe-login-copy">
               The reader hit an unexpected error. Reload to continue — your cloud library is safe.
