@@ -53,7 +53,7 @@ Promise an **audiobook-style listening experience**, not a downloadable audioboo
 - **Title:** `PDF to Audiobook Reader — Listen in Your Browser | FolioDuet`
 - **Meta description:** `Import a text-based PDF, hear natural narration, and follow each spoken word on screen. Try the sample or use your own PDF without creating an account.`
 - **H1:** `Turn a PDF into an audiobook-style read-along`
-- **Canonical:** `https://folioduet.dionlabs.ai/pdf-to-audiobook`
+- **Canonical:** `https://pageecho.dionlabs.ai/pdf-to-audiobook`
 
 ### Above-the-fold copy
 
@@ -135,7 +135,7 @@ Use “bimodal” as explanatory language later on the page, not as the primary 
 - **Title:** `Read and Listen to a PDF at the Same Time | FolioDuet`
 - **Meta description:** `Hear a PDF read aloud while each spoken word is highlighted on screen. Import a text-based PDF or try the synchronized demo in your browser.`
 - **H1:** `Read and listen to your PDF at the same time`
-- **Canonical:** `https://folioduet.dionlabs.ai/read-and-listen-to-pdf`
+- **Canonical:** `https://pageecho.dionlabs.ai/read-and-listen-to-pdf`
 
 ### Above-the-fold copy
 
