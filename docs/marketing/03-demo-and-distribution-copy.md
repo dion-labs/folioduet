@@ -9,15 +9,17 @@ Product name: **FolioDuet**. Use `folioduet.dionlabs.ai` as the canonical produc
 
 Format master at 1080×1920 vertical, with a 1080×1080 safe center crop. Export captions burned in because most social playback starts muted. Also export a clean version for the landing pages with an adjacent transcript.
 
+Current mobile-first working export: [`assets/folioduet-x-demo-v1.mp4`](assets/folioduet-x-demo-v1.mp4). It is a 390×844 H.264/AAC MP4 using real Fish Audio output and finishes on the production QR handoff. Keep this as the compact X version; make a larger vertical master only if a distribution channel visibly degrades it.
+
 Use a public-domain, text-layer PDF with a visually recognizable page. Do not use a private tester document or a scanned PDF. Record real production behaviour; cuts may remove waiting time but must not imply impossible speed.
 
 | Time | Picture | On-screen text | Audio / production note |
 |---|---|---|---|
-| 0:00-0:03 | Start on an intimidating PDF or download folder, then move toward the FolioDuet import target. | `That PDF you keep postponing?` | No narration needed; a subtle page-drop sound is enough. |
-| 0:03-0:07 | Drop/select the PDF. Show the real import state, compressed with an honest jump cut if needed. | `Drop it into your browser` | Label a time cut if processing takes materially longer. |
-| 0:07-0:17 | Press play. Zoom enough to make 2-3 lines readable while the current word visibly tracks Fish Audio narration. | `Listen while every word stays in view` | Keep real Fish audio. Choose a passage with clean punctuation and no copyrighted text. |
-| 0:17-0:21 | Show speed control and automatic continuation/resume only if both work reliably in production. | `Your pace. Your place.` | One clean interaction; do not tour settings. |
-| 0:21-0:25 | Product mark, live browser URL, and two actions. | `FolioDuet` / `Try the demo • Import your PDF` / `No account required to try` | End on the visible read-along surface, not a blank logo card. |
+| 0:00-0:03 | Open on the mobile reader already speaking, with the current word visibly tracking the Fish Audio narration. | `Read and listen at the same time` | Lead with the payoff. Keep real Fish audio. |
+| 0:03-0:07 | Briefly show the one-click demo entry and the reader opening. | `One click to try it` | Compress only real waiting time; do not imply an instant PDF import. |
+| 0:07-0:17 | Let the passage play. Keep 2-3 lines readable while the highlight advances, then show one speed or seek interaction. | `Every spoken word stays in view` | Use the public catalog sample and preserve natural punctuation. |
+| 0:17-0:21 | Tap the phone handoff control from the reader. | `Keep your place anywhere` | Do not tour settings or other secondary controls. |
+| 0:21-0:25 | Hold on the real handoff dialog and scannable QR code long enough for a viewer to use it. | `Scan to continue` / `No account needed for this sample` | Keep `FolioDuet` and the clean launch URL visible without covering the QR code. |
 
 Small end-card disclosure:
 
@@ -46,13 +48,24 @@ Attach the video. A link can go in the first reply if preserving a clean video-f
 
 ### First reply
 
-> Try it: https://folioduet.dionlabs.ai/?utm_source=x&utm_medium=social&utm_campaign=activation_launch
+> Try it: https://folioduet.dionlabs.ai/x
 >
 > Source: https://github.com/dion-labs/pageecho
 >
 > It currently works best with text-based PDFs; scanned/image-only PDFs are not supported yet.
 
 FolioDuet is the current product name; the `pageecho` links remain valid during infrastructure migration.
+
+### Reply to the original PageEcho post
+
+> PageEcho is now FolioDuet.
+>
+> The idea is the same; the first run is much better: try the demo in one click, then import your own PDF and follow every word as Fish Audio reads.
+>
+> No account required:
+> https://folioduet.dionlabs.ai/x-update
+
+Attach the same mobile video. This reply exists for migration and continuity; the standalone post and community submissions remain the discovery surfaces.
 
 ### Optional follow-up after real data exists
 
@@ -71,7 +84,7 @@ Post only after the tracked demo and first-run changes are live.
 > The reader uses Fish Audio narration and follows the spoken word on screen. Original PDFs stay on the importing device; text being narrated is processed by the configured TTS provider, and signed-in users can sync extracted reading text/progress.
 >
 > 25-second demo: `[VIDEO OR DIRECT VIDEO LINK]`
-> Try it: https://folioduet.dionlabs.ai/?utm_source=hermes&utm_medium=community&utm_campaign=activation_launch
+> Try it: https://folioduet.dionlabs.ai/hermes
 > Source: https://github.com/dion-labs/pageecho
 >
 > I am looking for very specific feedback: where do you hesitate between landing, playing the demo, and starting your own PDF? If you try it, please tell me the browser/device and whether the PDF had selectable text.
@@ -89,7 +102,7 @@ Submit to `api-showcase`, not `voice-models`, unless the post is specifically ab
 > I built an open-source browser reader that lets someone import a text-based PDF, press play, and follow the current word while Fish Audio narrates it. I am using Fish's timestamped TTS response to keep playback and the reading surface aligned.
 >
 > Demo (25 sec): `[ATTACH VIDEO]`
-> Try it: https://folioduet.dionlabs.ai/?utm_source=fishaudio&utm_medium=community&utm_campaign=activation_launch
+> Try it: https://folioduet.dionlabs.ai/fish
 > Source: https://github.com/dion-labs/pageecho
 >
 > No account is required to try it. The original PDF stays on the importing device; text selected for neural playback is sent for TTS processing.
@@ -106,7 +119,7 @@ Do not claim an official partnership, use Fish's logo without permission, or imp
 
 - FolioDuet name and current `pageecho` URLs consistent;
 - production import/playback smoke-tested in a fresh desktop and mobile browser;
-- UTM links tested and retained through navigation;
+- branded campaign paths tested and attributed correctly without visible UTM parameters;
 - video has burned-in captions and no secrets/personal files;
 - repository and privacy links return `200`;
 - analytics events verified only under the intended consent state;

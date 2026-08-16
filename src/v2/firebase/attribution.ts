@@ -31,6 +31,17 @@ const SESSION_DATE_KEY = 'pageecho-analytics-session-date-v1';
 const MAX_CAMPAIGN_VALUE_LENGTH = 100;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
+const CAMPAIGN_PATHS: Readonly<Record<string, Readonly<{
+  source: string;
+  medium: string;
+  campaign: string;
+}>>> = {
+  '/x': { source: 'x', medium: 'social', campaign: 'launch' },
+  '/x-update': { source: 'x', medium: 'social', campaign: 'rename' },
+  '/fish': { source: 'fishaudio', medium: 'community', campaign: 'activation_launch' },
+  '/hermes': { source: 'hermes', medium: 'community', campaign: 'activation_launch' },
+};
+
 function cleanCampaignValue(value: string | null): string | undefined {
   if (!value) return undefined;
   const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, '').trim();
@@ -72,15 +83,17 @@ export function deriveAttribution(url: string, referrer = ''): FirstTouchAttribu
   const referrerHost = safeReferrerHost(referrer, parsed.hostname);
   const utmSource = cleanCampaignValue(parsed.searchParams.get('utm_source'));
   const utmMedium = cleanCampaignValue(parsed.searchParams.get('utm_medium'));
+  const landingPath = safeLandingPath(parsed.pathname);
+  const campaignPath = CAMPAIGN_PATHS[landingPath];
 
   return {
-    source: utmSource ?? referrerHost ?? 'direct',
-    medium: utmMedium ?? (referrerHost ? 'referral' : 'none'),
-    campaign: cleanCampaignValue(parsed.searchParams.get('utm_campaign')),
+    source: utmSource ?? campaignPath?.source ?? referrerHost ?? 'direct',
+    medium: utmMedium ?? campaignPath?.medium ?? (referrerHost ? 'referral' : 'none'),
+    campaign: cleanCampaignValue(parsed.searchParams.get('utm_campaign')) ?? campaignPath?.campaign,
     term: cleanCampaignValue(parsed.searchParams.get('utm_term')),
     content: cleanCampaignValue(parsed.searchParams.get('utm_content')),
     referrerHost,
-    landingPath: safeLandingPath(parsed.pathname),
+    landingPath,
   };
 }
 

@@ -40,6 +40,45 @@ describe('attribution', () => {
       .toMatchObject({ source: 'google.com', medium: 'referral', landingPath: '/v2' });
   });
 
+  it('attributes clean branded campaign paths without visible UTM parameters', () => {
+    expect(deriveAttribution('https://folioduet.dionlabs.ai/x', '')).toMatchObject({
+      source: 'x',
+      medium: 'social',
+      campaign: 'launch',
+      landingPath: '/x',
+    });
+    expect(deriveAttribution('https://folioduet.dionlabs.ai/x-update', '')).toMatchObject({
+      source: 'x',
+      medium: 'social',
+      campaign: 'rename',
+      landingPath: '/x-update',
+    });
+    expect(deriveAttribution('https://folioduet.dionlabs.ai/fish', '')).toMatchObject({
+      source: 'fishaudio',
+      medium: 'community',
+      campaign: 'activation_launch',
+      landingPath: '/fish',
+    });
+    expect(deriveAttribution('https://folioduet.dionlabs.ai/hermes', '')).toMatchObject({
+      source: 'hermes',
+      medium: 'community',
+      campaign: 'activation_launch',
+      landingPath: '/hermes',
+    });
+  });
+
+  it('lets explicit UTM values override a campaign path', () => {
+    expect(deriveAttribution(
+      'https://folioduet.dionlabs.ai/x?utm_source=manual&utm_medium=test&utm_campaign=override',
+      '',
+    )).toMatchObject({
+      source: 'manual',
+      medium: 'test',
+      campaign: 'override',
+      landingPath: '/x',
+    });
+  });
+
   it('keeps the original first touch on later visits', () => {
     const storage = memoryStorage();
     const first = deriveAttribution('https://folioduet.dionlabs.ai/?utm_source=fish');
