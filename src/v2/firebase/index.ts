@@ -10,7 +10,19 @@ export {
   completeGoogleRedirectIfPresent,
   consumeAuthError,
 } from './auth';
-export { trackEvent, reportError, installGlobalErrorReporting } from './analytics';
+export {
+  trackEvent,
+  reportError,
+  installGlobalErrorReporting,
+  installActivationAnalytics,
+  activationAnalytics,
+} from './analytics';
+export type {
+  ActivationSurface,
+  DocumentKind,
+  ImportFailureReason,
+  TtsProvider,
+} from './analytics';
 export {
   fetchFirebaseBootstrap,
   putFirebasePreferences,

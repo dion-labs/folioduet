@@ -68,10 +68,10 @@ export interface ReaderPreferences {
   pdfExtractor: PdfExtractor;
   inworldEnabled: boolean;
   inworldVoiceId: string;
-  /** @deprecated Kept empty; credentials live on the PageEcho server. */
+  /** @deprecated Kept empty; credentials live on the FolioDuet server. */
   inworldApiKey: string;
   fishAudioEnabled: boolean;
   fishAudioVoiceId: string;
-  /** @deprecated Kept empty; credentials live on the PageEcho server. */
+  /** @deprecated Kept empty; credentials live on the FolioDuet server. */
   fishAudioApiKey: string;
 }

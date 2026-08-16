@@ -1,7 +1,7 @@
 {
-  "name": "PageEcho",
-  "short_name": "PageEcho",
-  "description": "A focused bimodal reader for PDFs and Markdown books.",
+  "name": "FolioDuet",
+  "short_name": "FolioDuet",
+  "description": "Turn PDFs into read-along audiobooks with natural speech and word-by-word highlighting.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

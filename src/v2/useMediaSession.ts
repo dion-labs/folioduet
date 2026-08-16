@@ -98,8 +98,8 @@ export function useMediaSession(options: {
 
     try {
       session.metadata = new MediaMetadata({
-        title: meta.title || 'PageEcho',
-        artist: meta.artist || 'PageEcho',
+        title: meta.title || 'FolioDuet',
+        artist: meta.artist || 'FolioDuet',
         album: meta.album || 'Reading',
         artwork: artworkEntries(meta.artworkUrl),
       });

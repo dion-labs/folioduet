@@ -13,7 +13,6 @@ import {
   Menu,
   Pause,
   Play,
-  Plus,
   Settings,
   Smartphone,
   Square,
@@ -47,6 +46,7 @@ import {
 } from './documents';
 import { ChapterListPanel } from './components/ChapterListPanel';
 import { ConsentBanner } from './components/ConsentBanner';
+import { FirstRunWelcome } from './components/FirstRunWelcome';
 import { GitHubMark } from './components/GitHubMark';
 import { HandoffDialog } from './components/HandoffDialog';
 import { HandoffResumeDialog } from './components/HandoffResumeDialog';
@@ -76,6 +76,7 @@ import {
   createTellTaleLibraryDocument,
   isCatalogSampleDocumentId,
 } from './catalog/constants';
+import { activationAnalytics, installActivationAnalytics } from './firebase';
 import { installGlobalErrorReporting } from './firebase/analytics';
 import { isFirebaseConfigured } from './firebase/app';
 import {
@@ -331,6 +332,7 @@ export default function AppV2() {
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [demoPlaybackRequested, setDemoPlaybackRequested] = useState(false);
   const [pairBusy, setPairBusy] = useState(false);
   const [hydrateReady, setHydrateReady] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
@@ -344,7 +346,16 @@ export default function AppV2() {
   const readingWrapRef = useRef<HTMLDivElement | null>(null);
   const pendingProgressRef = useRef<PendingProgress | null>(null);
   const progressTimerRef = useRef<number | null>(null);
+  const measuredPlaybackMsRef = useRef(new Map<string, number>());
+  const playbackStartTrackedRef = useRef(new Set<string>());
+  const playbackMilestoneTrackedRef = useRef(new Set<string>());
   const pendingHandoffRef = useRef<HandoffTarget | null>(null);
+  const acquisitionIntentRef = useRef<'demo' | 'import' | null>((() => {
+    if (typeof window === 'undefined') return null;
+    const intent = new URLSearchParams(window.location.search).get('intent');
+    return intent === 'demo' || intent === 'import' ? intent : null;
+  })());
+  const acquisitionIntentHandledRef = useRef(false);
   const handoffArrivalRef = useRef<'url' | 'storage' | null>(null);
   const handoffBootstrappedRef = useRef(false);
   const handoffResumeShownRef = useRef(false);
@@ -433,7 +444,7 @@ export default function AppV2() {
         error: error instanceof Error ? error.message : String(error),
       });
       if (isDebug('sync', 'resume')) {
-        console.warn('[PageEcho:sync] putDocumentProgress failed', error);
+        console.warn('[FolioDuet:sync] putDocumentProgress failed', error);
       }
     });
   }, []);
@@ -530,8 +541,8 @@ export default function AppV2() {
     resetDebugFlagCache();
     if (isDebug('resume', 'hydrate', 'sync', 'pack')) {
       console.info(
-        '[PageEcho] debug logging ON — scopes via ?debug=resume (or resume,hydrate,sync,pack / debug=1). '
-        + 'Filter console for “[PageEcho:”.',
+        '[FolioDuet] debug logging ON — scopes via ?debug=resume (or resume,hydrate,sync,pack / debug=1). '
+        + 'Filter console for “[FolioDuet:”.',
       );
     }
   }, []);
@@ -570,6 +581,10 @@ export default function AppV2() {
   }, [preferences.fishAudioEnabled, preferences.fishAudioVoiceId]);
 
   useEffect(() => {
+    return installActivationAnalytics();
+  }, []);
+
+  useEffect(() => {
     const uninstall = installGlobalErrorReporting();
     if (!firebaseMode) {
       setAuthUser(null);
@@ -592,7 +607,7 @@ export default function AppV2() {
           }),
         ]);
       } catch (error) {
-        if (!cancelled) console.error('[PageEcho] Google redirect sign-in failed', error);
+        if (!cancelled) console.error('[FolioDuet] Google redirect sign-in failed', error);
       }
       if (cancelled) return;
       clearFirebaseAuthHandlerUrl();
@@ -600,7 +615,7 @@ export default function AppV2() {
       try {
         await waitForAuthReady();
       } catch (error) {
-        if (!cancelled) console.error('[PageEcho] Auth ready failed', error);
+        if (!cancelled) console.error('[FolioDuet] Auth ready failed', error);
       }
       if (cancelled) return;
 
@@ -609,7 +624,7 @@ export default function AppV2() {
         try {
           await ensureAnonymousSession();
         } catch (error) {
-          console.error('[PageEcho] Anonymous sign-in failed', error);
+          console.error('[FolioDuet] Anonymous sign-in failed', error);
           if (!cancelled) {
             setAuthBootError(
               error instanceof Error ? error.message : 'Anonymous sign-in failed.',
@@ -623,7 +638,7 @@ export default function AppV2() {
       unsubscribe = subscribeAuth((user) => {
         if (!user) {
           void ensureAnonymousSession().catch((error) => {
-            console.error('[PageEcho] Anonymous sign-in failed', error);
+            console.error('[FolioDuet] Anonymous sign-in failed', error);
             if (!cancelled) {
               setAuthBootError(
                 error instanceof Error ? error.message : 'Anonymous sign-in failed.',
@@ -855,7 +870,7 @@ export default function AppV2() {
                 if (paired) await uploadDocumentBlob(document.id, 'paired-pdf', paired);
               }
             } catch (error) {
-              console.warn('[PageEcho] Skipped seeding document', document.id, error);
+              console.warn('[FolioDuet] Skipped seeding document', document.id, error);
             }
           }
         } else if (isAnonymous) {
@@ -865,7 +880,7 @@ export default function AppV2() {
           setActiveDocumentId(null);
           saveLibrary([]);
           saveActiveDocumentId(null);
-          setLibraryOpen(true);
+          setLibraryOpen(false);
           await putLibrary([], null);
         }
 
@@ -1056,6 +1071,9 @@ export default function AppV2() {
       activeDocument.kind === 'markdown-zip'
         ? loadPairedPdf(activeDocument.id).then(async (local) => {
             if (local) return local;
+            if (activeDocument.isSample || isCatalogSampleDocumentId(activeDocument.id)) {
+              return null;
+            }
             const remote = await downloadDocumentBlob(
               activeDocument.id,
               'paired-pdf',
@@ -1145,7 +1163,7 @@ export default function AppV2() {
         throw new Error(
           usesFirebaseSync()
             ? 'Original PDFs stay on the importing device, and no processed text is synced yet. Re-open the PDF once on the device that has the file (to extract + sync), or re-import it here.'
-            : 'The original file is not available locally or on the PageEcho server yet.',
+            : 'The original file is not available locally or on the FolioDuet server yet.',
         );
       }
       setSource(loadedSource);
@@ -1166,7 +1184,7 @@ export default function AppV2() {
         if (sourcePages.length === 0) {
           setPdfExtractionStatus({ state: 'error', requested: preferences.pdfExtractor });
           throw new Error(
-            'This PDF has no selectable text layer (it may be a scan). PageEcho needs text to build the reading view.',
+            'This PDF has no selectable text layer (it may be a scan). FolioDuet needs text to build the reading view.',
           );
         }
         setPdfExtractionStatus(extraction.didFallback
@@ -1315,10 +1333,89 @@ export default function AppV2() {
     onPositionUpdate: queueProgress,
   });
 
+  useEffect(() => {
+    if (!activeDocument || !tts.isPlaying || tts.isPaused) return;
+
+    const documentId = activeDocument.id;
+    const isSample = Boolean(
+      activeDocument.isSample || isCatalogSampleDocumentId(documentId),
+    );
+    const provider = tts.lastError
+      ? 'system'
+      : preferences.fishAudioEnabled
+        ? 'fish'
+        : preferences.inworldEnabled
+          ? 'inworld'
+          : 'system';
+
+    if (!isSample && !playbackStartTrackedRef.current.has(documentId)) {
+      playbackStartTrackedRef.current.add(documentId);
+      void activationAnalytics.ownDocumentPlaybackStart(
+        activeDocument.kind === 'pdf' ? 'pdf' : 'markdown_zip',
+        provider,
+      );
+    }
+
+    if (playbackMilestoneTrackedRef.current.has(documentId)) return;
+
+    const thresholdMs = isSample ? 30_000 : 180_000;
+    const alreadyMeasuredMs = measuredPlaybackMsRef.current.get(documentId) ?? 0;
+    const startedAt = Date.now();
+    const timeout = window.setTimeout(() => {
+      measuredPlaybackMsRef.current.set(documentId, thresholdMs);
+      playbackMilestoneTrackedRef.current.add(documentId);
+      if (isSample) {
+        void activationAnalytics.demo30Seconds('reader');
+      } else {
+        void activationAnalytics.ownDocumentListened3Minutes(
+          activeDocument.kind === 'pdf' ? 'pdf' : 'markdown_zip',
+          provider,
+        );
+      }
+    }, Math.max(0, thresholdMs - alreadyMeasuredMs));
+
+    return () => {
+      window.clearTimeout(timeout);
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
+      measuredPlaybackMsRef.current.set(
+        documentId,
+        Math.min(thresholdMs, alreadyMeasuredMs + elapsedMs),
+      );
+    };
+  }, [
+    activeDocument?.id,
+    activeDocument?.isSample,
+    activeDocument?.kind,
+    preferences.fishAudioEnabled,
+    preferences.inworldEnabled,
+    tts.isPaused,
+    tts.isPlaying,
+    tts.lastError,
+  ]);
+
   const playVisibleBlock = useCallback((blockIndex: number, wordIndex: number) => {
     const pageStart = pageStartsRef.current[pageIndex] ?? 0;
     tts.play(pageStart + Math.max(0, blockIndex), wordIndex);
   }, [pageIndex, tts.play]);
+
+  useEffect(() => {
+    if (!demoPlaybackRequested) return;
+    if (!activeDocument || !isCatalogSampleDocumentId(activeDocument.id)) return;
+    if (documentLoading || !viewportReady || ttsStreamBlocks.length === 0) return;
+
+    // The CTA is the user's playback intent. Sample extraction is asynchronous,
+    // so fulfill it at the first moment the stream has a speakable block. Browsers
+    // that reject delayed media playback still fall back to the visible Play control.
+    setDemoPlaybackRequested(false);
+    tts.play(0, 0);
+  }, [
+    activeDocument,
+    demoPlaybackRequested,
+    documentLoading,
+    tts.play,
+    ttsStreamBlocks.length,
+    viewportReady,
+  ]);
 
   useEffect(() => {
     if (!activeCatalogSampleId || !usesFirebaseSync()) return;
@@ -1756,6 +1853,10 @@ export default function AppV2() {
           );
         }
         imported.push(document);
+        void activationAnalytics.importSuccess(
+          document.kind === 'pdf' ? 'pdf' : 'markdown_zip',
+          sourcePages ? totalPages : undefined,
+        );
       }
 
       setDocuments((current) => [...imported, ...current]);
@@ -1765,18 +1866,30 @@ export default function AppV2() {
         setSavedBlockIndex(0);
         setSavedWordIndex(0);
         setReaderView('reading');
+        setLibraryOpen(false);
       }
       setImportOpen(false);
     } catch (error) {
+      const unsupportedType = error instanceof Error && /not a PDF or ZIP archive/i.test(error.message);
+      const attemptedKind = files[0]?.name.toLowerCase().endsWith('.pdf')
+        ? 'pdf'
+        : files[0]?.name.toLowerCase().endsWith('.zip')
+          ? 'markdown_zip'
+          : 'other';
+      void activationAnalytics.importFailure(
+        unsupportedType ? 'unsupported_type' : 'unknown',
+        attemptedKind,
+      );
       setImportError(error instanceof Error ? error.message : 'The selected files could not be imported.');
     } finally {
       setImportBusy(false);
     }
   }, []);
 
-  const importSampleStory = useCallback(async () => {
+  const importSampleStory = useCallback(async (playWhenReady = false) => {
     setImportError(null);
     setImportBusy(true);
+    setDemoPlaybackRequested(playWhenReady);
     try {
       const response = await fetch('/samples/tell-tale-heart.zip?v=1');
       if (!response.ok) {
@@ -1803,8 +1916,10 @@ export default function AppV2() {
       setSavedBlockIndex(0);
       setSavedWordIndex(0);
       setReaderView('reading');
+      setLibraryOpen(false);
       setImportOpen(false);
     } catch (error) {
+      setDemoPlaybackRequested(false);
       setImportError(error instanceof Error ? error.message : 'Sample import failed.');
       setImportOpen(true);
     } finally {
@@ -1812,8 +1927,24 @@ export default function AppV2() {
     }
   }, []);
 
+  useEffect(() => {
+    const intent = acquisitionIntentRef.current;
+    if (!hydrateReady || !intent || acquisitionIntentHandledRef.current) return;
+    acquisitionIntentHandledRef.current = true;
+
+    if (intent === 'demo') {
+      void activationAnalytics.demoStart('first_run');
+      void importSampleStory(true);
+      return;
+    }
+
+    setImportError(null);
+    setImportOpen(true);
+    void activationAnalytics.importOpen(activeDocument ? 'reader' : 'first_run');
+  }, [activeDocument, hydrateReady, importSampleStory]);
+
   const deleteDocument = useCallback(async (document: LibraryDocument) => {
-    const where = usesFirebaseSync() ? 'your account' : 'the PageEcho server';
+    const where = usesFirebaseSync() ? 'your account' : 'the FolioDuet server';
     if (!window.confirm(`Remove “${document.name}” from this device and ${where}?`)) return;
     if (activeDocumentId === document.id) {
       tts.stop();
@@ -1915,8 +2046,8 @@ export default function AppV2() {
     enabled: Boolean(activeDocument),
     playbackState: toMediaSessionPlayback(tts.playbackState),
     meta: {
-      title: activeDocument?.name || 'PageEcho',
-      artist: 'PageEcho',
+      title: activeDocument?.name || 'FolioDuet',
+      artist: 'FolioDuet',
       album: activeDocument
         ? `Page ${pageIndex + 1} of ${activeDocument.totalPages}`
         : 'Reading',
@@ -2008,7 +2139,7 @@ export default function AppV2() {
         )}
       </div>
       <footer className="pe-page-footer">
-        <span>PageEcho reading layer</span>
+        <span>FolioDuet reading layer</span>
         <span>{Math.round(progress)}% complete</span>
       </footer>
     </article>
@@ -2065,6 +2196,29 @@ export default function AppV2() {
   }, []);
 
   const isAnonymousUser = Boolean(authUser?.isAnonymous);
+  const isFirstRunHome = !activeDocument && documents.length === 0;
+  const showGuestSyncBanner = Boolean(
+    firebaseMode
+    && isAnonymousUser
+    && documents.some((document) => (
+      !document.isSample && !isCatalogSampleDocumentId(document.id)
+    )),
+  );
+  const guestSyncPromptSurface = showGuestSyncBanner
+    ? (activeDocument ? 'reader' : 'empty_library')
+    : null;
+
+  useEffect(() => {
+    if (guestSyncPromptSurface) {
+      void activationAnalytics.signupPromptShown(guestSyncPromptSurface);
+    }
+  }, [guestSyncPromptSurface]);
+
+  useEffect(() => {
+    if (firebaseMode && isAnonymousUser && settingsOpen) {
+      void activationAnalytics.signupPromptShown('account');
+    }
+  }, [firebaseMode, isAnonymousUser, settingsOpen]);
 
   if (firebaseMode && authUser === undefined) {
     return <LoginGate busy busyMessage="Restoring your session…" />;
@@ -2095,7 +2249,8 @@ export default function AppV2() {
         'pe-app',
         focusActive ? 'is-focus-reading' : '',
         focusActive && chromeVisible ? 'is-chrome-visible' : '',
-        firebaseMode && isAnonymousUser ? 'has-guest-banner' : '',
+        isFirstRunHome ? 'is-first-run' : '',
+        showGuestSyncBanner ? 'has-guest-banner' : '',
       ].filter(Boolean).join(' ')}
       data-theme={preferences.appearance}
     >
@@ -2121,7 +2276,7 @@ export default function AppV2() {
           >
             <span className="pe-brand-mark"><BookOpen size={18} /></span>
             <div>
-              <strong>PageEcho</strong>
+              <strong>FolioDuet</strong>
               <span>Read with every sense</span>
             </div>
           </button>
@@ -2158,7 +2313,7 @@ export default function AppV2() {
         </div>
       </header>
 
-      {firebaseMode && isAnonymousUser ? (
+      {showGuestSyncBanner ? (
         <div className="pe-guest-banner" role="status">
           <p>
             You’re browsing as a guest. Sign in with Google to keep your library across devices.
@@ -2192,6 +2347,9 @@ export default function AppV2() {
             onImport={() => {
               setImportError(null);
               setImportOpen(true);
+              void activationAnalytics.importOpen(
+                activeDocument ? 'reader' : documents.length === 0 ? 'first_run' : 'empty_library',
+              );
             }}
             onDelete={deleteDocument}
             storageHint={
@@ -2337,7 +2495,13 @@ export default function AppV2() {
                       >
                         Back to library
                       </button>
-                      <button className="pe-button pe-button-primary" onClick={() => setImportOpen(true)}>
+                      <button
+                        className="pe-button pe-button-primary"
+                        onClick={() => {
+                          setImportOpen(true);
+                          void activationAnalytics.importOpen('reader');
+                        }}
+                      >
                         <Upload size={16} /> Import another file
                       </button>
                     </div>
@@ -2527,45 +2691,27 @@ export default function AppV2() {
             </>
           ) : (
             <div className="pe-home">
-              <section className="pe-welcome">
-                <div className="pe-welcome-copy">
-                  <span className="pe-eyebrow">A calmer way to read and listen</span>
-                  <h1>Your books,<br />in perfect cadence.</h1>
-                  <p>Import PDF books. PageEcho keeps your place, speaks every passage, and follows each word without losing the page.</p>
-                  <div className="pe-welcome-actions">
-                    <button className="pe-button pe-button-primary" onClick={() => setImportOpen(true)}>
-                      <Plus size={17} /> Add your first book
-                    </button>
-                    <button
-                      className="pe-button pe-button-secondary"
-                      onClick={() => { void importSampleStory(); }}
-                      disabled={importBusy}
-                    >
-                      {importBusy ? <LoaderCircle className="pe-spin" size={17} /> : <BookOpen size={17} />}
-                      Try a sample short story
-                    </button>
-                  </div>
-                </div>
-                <div className="pe-welcome-visual" aria-hidden="true">
-                  <div className="pe-visual-card pe-visual-card-back">
-                    <span>04</span>
-                    <p>“The reader’s attention moves with the voice.”</p>
-                  </div>
-                  <div className="pe-visual-card pe-visual-card-front">
-                    <div className="pe-visual-line" />
-                    <div className="pe-visual-line is-short" />
-                    <p>
-                      Ideas become clearer when text and sound{' '}
-                      <span className="pe-visual-highlight">move together</span>
-                    </p>
-                    <div className="pe-visual-wave"><i /><i /><i /><i /><i /><i /><i /></div>
-                  </div>
-                </div>
-              </section>
+              <FirstRunWelcome
+                demoBusy={importBusy && demoPlaybackRequested}
+                onPlayDemo={() => {
+                  void activationAnalytics.demoStart('first_run');
+                  void importSampleStory(true);
+                }}
+                onUploadPdf={() => {
+                  setImportError(null);
+                  setImportOpen(true);
+                  void activationAnalytics.importOpen('first_run');
+                }}
+              />
               <footer className="pe-home-footer">
                 <p className="pe-home-footer-note">
-                  PageEcho is free and open source. If it helps you read, a small sponsorship keeps the lights on.
+                  FolioDuet, formerly PageEcho, is free and open source. If it helps you read, a small sponsorship keeps the lights on.
                 </p>
+                <nav className="pe-home-footer-resources" aria-label="PDF listening guides">
+                  <a href="/pdf-to-audiobook/">PDF to audiobook</a>
+                  <span aria-hidden="true">·</span>
+                  <a href="/read-and-listen-to-pdf/">Read and listen to PDFs</a>
+                </nav>
                 <div className="pe-home-footer-row">
                   <div className="pe-home-footer-cta">
                     <a
@@ -2573,7 +2719,7 @@ export default function AppV2() {
                       href={GITHUB_REPO_URL}
                       target="_blank"
                       rel="noreferrer"
-                      aria-label="PageEcho on GitHub"
+                      aria-label="FolioDuet on GitHub"
                       title="GitHub"
                     >
                       <GitHubMark size={17} />
@@ -2610,7 +2756,7 @@ export default function AppV2() {
         error={importError}
         onClose={() => setImportOpen(false)}
         onImport={importFiles}
-        onImportSample={() => { void importSampleStory(); }}
+        onImportSample={() => { void importSampleStory(false); }}
       />
       <ChapterListPanel
         open={chaptersOpen}

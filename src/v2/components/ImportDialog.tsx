@@ -88,7 +88,7 @@ export function ImportDialog({ open, busy, error, onClose, onImport, onImportSam
 
         {error && <p className="pe-form-error" role="alert">{error}</p>}
         <p className="pe-dialog-note">
-          Files stay on this device. Processed reading text can sync privately with your PageEcho account.
+          Files stay on this device. Processed reading text can sync privately with your FolioDuet account.
         </p>
       </section>
     </div>

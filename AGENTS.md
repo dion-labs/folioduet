@@ -1,10 +1,12 @@
-# Agent guide — PageEcho
+# Agent guide — FolioDuet
 
-This file is for coding agents (and humans) setting up **PageEcho on a user’s own infrastructure**, not the Dion Labs shared Firebase project.
+This file is for coding agents (and humans) setting up **FolioDuet on a user’s own infrastructure**, not the Dion Labs shared Firebase project. FolioDuet was formerly PageEcho.
 
 ## What this project is
 
-PageEcho is a React + Vite SPA: PDF/Markdown reading with word-aligned TTS, guest or Google auth, and per-user Firestore sync. Originals stay in IndexedDB on the import device; processed page markdown syncs under `pageecho/{uid}/…`.
+FolioDuet is a React + Vite SPA: PDF/Markdown reading with word-aligned TTS, guest or Google auth, and per-user Firestore sync. Originals stay in IndexedDB on the import device; processed page markdown syncs under `pageecho/{uid}/…`.
+
+The canonical host is `folioduet.dionlabs.ai`; keep `pageecho.dionlabs.ai` attached so the Pages middleware can permanently redirect old links. Keep the existing `github.com/dion-labs/pageecho` repository slug. The `pageecho` Firestore namespace, `pageecho-*` browser-storage keys, `pageecho-shell-*` service-worker caches, and `X-PageEcho-TTS-Cache` API header are legacy compatibility contracts; do not rename them without a separately designed migration.
 
 Production shape: **static `dist/` on Cloudflare Pages + Firebase**. The Node server under `server/` is optional for local TTS caching / single-user sync.
 
@@ -24,7 +26,7 @@ Do **not** reuse `dionlabs-fe92e` unless you are deploying the official Dion Lab
 
 4. **Authorized domains**: add `localhost` and your production host (e.g. `pageecho.example.com`).
 5. **Firestore**: create the default database.
-6. **Rules**: deploy owner-only PageEcho rules. For a **dedicated** project (no Dion Labs blog collections), use:
+6. **Rules**: deploy owner-only FolioDuet rules. For a **dedicated** project (no Dion Labs blog collections), use:
 
    ```
    rules_version = '2';

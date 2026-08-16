@@ -66,7 +66,7 @@ function isPageFurniture(text: string, documentName: string, blockIndex: number)
   return false;
 }
 
-/** Drop chrome that PageEcho already shows in the reader toolbar. */
+/** Drop chrome that FolioDuet already shows in the reader toolbar. */
 function stripLegacyPageChrome(markdown: string): string {
   return markdown
     .replace(/\r\n/g, '\n')
@@ -265,7 +265,7 @@ export function buildBookStream(sourcePages: string[], documentName: string): Bo
 }
 
 /**
- * Pack source PDF-page markdown into fixed-size PageEcho reading pages.
+ * Pack source PDF-page markdown into fixed-size FolioDuet reading pages.
  * Prefer viewport packing in the app; this word-budget path is the fallback/tests.
  */
 export function reflowBookPages(

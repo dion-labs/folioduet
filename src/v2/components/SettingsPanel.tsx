@@ -129,34 +129,34 @@ export function SettingsPanel({
 
   const syncLabel = cloudSync
     ? deviceSyncStatus === 'synced'
-      ? 'Library and preferences sync privately under your PageEcho account.'
+      ? 'Library and preferences sync privately under your FolioDuet account.'
       : deviceSyncStatus === 'syncing'
-        ? 'Syncing your PageEcho account…'
+        ? 'Syncing your FolioDuet account…'
         : deviceSyncStatus === 'offline'
           ? 'Cloud sync unavailable — changes stay on this device until you reconnect.'
           : deviceSyncStatus === 'error'
             ? 'Last sync failed — retry by changing a setting or reloading.'
-            : 'Waiting to sync your PageEcho account.'
+            : 'Waiting to sync your FolioDuet account.'
     : deviceSyncStatus === 'synced'
-      ? 'Library & preferences sync with this PageEcho server (Tailscale-ready).'
+      ? 'Library & preferences sync with this FolioDuet server (Tailscale-ready).'
       : deviceSyncStatus === 'syncing'
-        ? 'Syncing with the PageEcho server…'
+        ? 'Syncing with the FolioDuet server…'
         : deviceSyncStatus === 'offline'
           ? 'Server offline — changes stay on this device until it reconnects.'
           : deviceSyncStatus === 'error'
             ? 'Last sync failed — retry by changing a setting or reloading.'
-            : 'Waiting to sync with the PageEcho server.';
+            : 'Waiting to sync with the FolioDuet server.';
 
   const pdfStatusLabel = pdfExtractionStatus?.state === 'extracting'
-    ? `Extracting current PDF with ${pdfExtractionStatus.requested === 'anydoc' ? 'AnyDoc' : 'PageEcho'}…`
+    ? `Extracting current PDF with ${pdfExtractionStatus.requested === 'anydoc' ? 'AnyDoc' : 'FolioDuet'}…`
     : pdfExtractionStatus?.state === 'fallback'
-      ? 'AnyDoc could not process this PDF. PageEcho was used instead.'
+      ? 'AnyDoc could not process this PDF. FolioDuet was used instead.'
       : pdfExtractionStatus?.state === 'error'
         ? 'The current PDF could not be extracted.'
         : pdfExtractionStatus?.used === 'anydoc'
           ? 'Current PDF successfully extracted with AnyDoc.'
           : pdfExtractionStatus?.used === 'pageecho'
-            ? 'Current PDF extracted with PageEcho.'
+            ? 'Current PDF extracted with FolioDuet.'
             : 'Open a locally stored PDF to see which extractor was used.';
 
   return (
@@ -239,7 +239,7 @@ export function SettingsPanel({
           <div className="pe-setting-heading">
             <div>
               <h3>PDF text extraction</h3>
-              <p>Choose how PageEcho turns local PDFs into its reading stream.</p>
+              <p>Choose how FolioDuet turns local PDFs into its reading stream.</p>
             </div>
           </div>
           <div className="pe-segmented pe-segmented-wide">
@@ -248,7 +248,7 @@ export function SettingsPanel({
               className={preferences.pdfExtractor === 'pageecho' ? 'is-active' : ''}
               onClick={() => update('pdfExtractor', 'pageecho')}
             >
-              PageEcho
+              FolioDuet
             </button>
             <button
               type="button"
@@ -260,7 +260,7 @@ export function SettingsPanel({
           </div>
           <p className="pe-settings-hint">
             AnyDoc runs locally and may improve columns, headings, tables, and page-number cleanup.
-            If it fails, PageEcho automatically uses its original extractor.
+            If it fails, FolioDuet automatically uses its original extractor.
           </p>
           <p className={`pe-inline-status ${
             pdfExtractionStatus?.state === 'ready' ? 'is-connected' : ''

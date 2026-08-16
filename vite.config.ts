@@ -48,6 +48,8 @@ export default defineConfig(({ mode }) => {
       rolldownOptions: {
         input: [
           fileURLToPath(new URL('./index.html', import.meta.url)),
+          fileURLToPath(new URL('./pdf-to-audiobook/index.html', import.meta.url)),
+          fileURLToPath(new URL('./read-and-listen-to-pdf/index.html', import.meta.url)),
         ],
       },
     },

@@ -357,7 +357,7 @@ export class TtsCache {
             });
           }
         } catch (e) {
-          console.error('[PageEcho] Error parsing Fish Audio SSE event:', e);
+          console.error('[FolioDuet] Error parsing Fish Audio SSE event:', e);
         }
       }
     }

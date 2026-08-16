@@ -303,7 +303,7 @@ export function createPageEchoServer({
       const statusCode = normalized instanceof TtsCacheError ? normalized.statusCode : 500;
       const code = normalized instanceof TtsCacheError ? normalized.code : 'INTERNAL_ERROR';
       const message = normalized instanceof Error ? normalized.message : 'Unexpected server error.';
-      if (statusCode >= 500) console.error('[PageEcho server]', normalized);
+      if (statusCode >= 500) console.error('[FolioDuet server]', normalized);
       sendJson(response, statusCode, { error: code, message });
     }
   });
@@ -359,16 +359,16 @@ export async function startPageEchoServer({ isDev = false } = {}) {
   });
 
   const publicHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
-  console.log(`[PageEcho] Server listening on http://${host}:${port}`);
+  console.log(`[FolioDuet] Server listening on http://${host}:${port}`);
   if (host === '0.0.0.0' || host === '::') {
-    console.log(`[PageEcho] Local:     http://localhost:${port}`);
-    console.log(`[PageEcho] Tailscale: http://<your-tailscale-ip-or-magicdns>:${port}`);
+    console.log(`[FolioDuet] Local:     http://localhost:${port}`);
+    console.log(`[FolioDuet] Tailscale: http://<your-tailscale-ip-or-magicdns>:${port}`);
   } else {
-    console.log(`[PageEcho] Open http://${publicHost}:${port}`);
+    console.log(`[FolioDuet] Open http://${publicHost}:${port}`);
   }
-  console.log(`[PageEcho] Persistent TTS cache: ${dataDir}`);
-  console.log(`[PageEcho] Inworld synthesis: ${cache.isConfigured ? 'configured' : 'not configured'}`);
-  console.log(`[PageEcho] Fish Audio synthesis: ${cache.isFishAudioConfigured ? 'configured' : 'not configured'}`);
+  console.log(`[FolioDuet] Persistent TTS cache: ${dataDir}`);
+  console.log(`[FolioDuet] Inworld synthesis: ${cache.isConfigured ? 'configured' : 'not configured'}`);
+  console.log(`[FolioDuet] Fish Audio synthesis: ${cache.isFishAudioConfigured ? 'configured' : 'not configured'}`);
 
   const shutdown = async () => {
     await new Promise((resolve) => server.close(resolve));
