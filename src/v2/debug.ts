@@ -2,9 +2,9 @@
  * Opt-in debug logging via query param (or localStorage sticky flag).
  *
  * Enable:
- *   https://pageecho.dionlabs.ai/?debug=resume
- *   https://pageecho.dionlabs.ai/?debug=resume,hydrate,sync
- *   https://pageecho.dionlabs.ai/?debug=1          → all scopes below
+ *   https://folioduet.dionlabs.ai/?debug=resume
+ *   https://folioduet.dionlabs.ai/?debug=resume,hydrate,sync
+ *   https://folioduet.dionlabs.ai/?debug=1          → all scopes below
  *
  * Sticky (survives dropping the query param until cleared):
  *   localStorage.setItem('pageecho-debug', 'resume')

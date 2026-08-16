@@ -6,7 +6,7 @@ This file is for coding agents (and humans) setting up **FolioDuet on a user’s
 
 FolioDuet is a React + Vite SPA: PDF/Markdown reading with word-aligned TTS, guest or Google auth, and per-user Firestore sync. Originals stay in IndexedDB on the import device; processed page markdown syncs under `pageecho/{uid}/…`.
 
-The rename is cosmetic until infrastructure migration is complete. Keep the current `pageecho.dionlabs.ai` host and `github.com/dion-labs/pageecho` repository slug. The `pageecho` Firestore namespace, `pageecho-*` browser-storage keys, `pageecho-shell-*` service-worker caches, and `X-PageEcho-TTS-Cache` API header are legacy compatibility contracts; do not rename them without a separately designed migration.
+The canonical host is `folioduet.dionlabs.ai`; keep `pageecho.dionlabs.ai` attached so the Pages middleware can permanently redirect old links. Keep the existing `github.com/dion-labs/pageecho` repository slug. The `pageecho` Firestore namespace, `pageecho-*` browser-storage keys, `pageecho-shell-*` service-worker caches, and `X-PageEcho-TTS-Cache` API header are legacy compatibility contracts; do not rename them without a separately designed migration.
 
 Production shape: **static `dist/` on Cloudflare Pages + Firebase**. The Node server under `server/` is optional for local TTS caching / single-user sync.
 
