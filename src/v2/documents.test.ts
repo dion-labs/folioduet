@@ -28,6 +28,60 @@ describe('prepareMarkdownPage', () => {
     ]);
   });
 
+  it('hides Roman page numbers and numbered running-header copies', () => {
+    const page = [
+      '#### Preface to the Anniversary Edition',
+      '',
+      'Opening paragraph.',
+      '',
+      '**Vll**',
+      '',
+      '**viii Preface to the Anniversary Edition**',
+      '',
+      'Middle paragraph.',
+      '',
+      '**Preface to the Anniversary Edition ix**',
+      '',
+      'Closing paragraph.',
+    ].join('\n');
+
+    const result = prepareMarkdownPage(page, 'Example');
+
+    expect(result.renderedBlocks.map((block) => block.text)).toEqual([
+      'Preface to the Anniversary Edition',
+      'Opening paragraph.',
+      'Middle paragraph.',
+      'Closing paragraph.',
+    ]);
+    expect(result.speakableBlocks).toEqual([
+      'Preface to the Anniversary Edition',
+      'Opening paragraph.',
+      'Middle paragraph.',
+      'Closing paragraph.',
+    ]);
+  });
+
+  it('preserves Roman-numeral headings and unmatched numbered prose', () => {
+    const page = [
+      '## VII',
+      '',
+      '**viii An independent observation**',
+      '',
+      'I',
+      '',
+      'mix',
+    ].join('\n');
+
+    const result = prepareMarkdownPage(page, 'Example');
+
+    expect(result.renderedBlocks.map((block) => block.text)).toEqual([
+      'VII',
+      'viii An independent observation',
+      'I',
+      'mix',
+    ]);
+  });
+
   it('strips legacy # title / ## Page chrome from markdown pages', () => {
     const page = [
       '# Addison-Wesley: The Mythical Man-Month',

@@ -43,12 +43,78 @@ function normalizeTitle(value: string): string {
     .toLowerCase();
 }
 
-function isPageFurniture(text: string, documentName: string, blockIndex: number): boolean {
+function isStrictRomanNumeral(value: string): boolean {
+  return /^(?=[mdclxvi]+$)m{0,4}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})$/i.test(value);
+}
+
+function romanNumeralValue(value: string): number {
+  const values: Record<string, number> = {
+    i: 1,
+    v: 5,
+    x: 10,
+    l: 50,
+    c: 100,
+    d: 500,
+    m: 1000,
+  };
+  const letters = value.toLowerCase().split('');
+  return letters.reduce((total, letter, index) => {
+    const current = values[letter] ?? 0;
+    const next = values[letters[index + 1]] ?? 0;
+    return total + (current < next ? -current : current);
+  }, 0);
+}
+
+function isRomanPageNumber(value: string): boolean {
+  const compact = value.trim();
+  let normalized = compact;
+  // Common OCR confusion in small-cap page numbers: VII -> Vll, XIII -> Xlll.
+  if (!isStrictRomanNumeral(normalized) && /^[IVX][il]{1,4}$/.test(compact)) {
+    normalized = compact.replace(/l/g, 'i');
+  }
+  if (!isStrictRomanNumeral(normalized)) return false;
+  const valueNumber = romanNumeralValue(normalized);
+  return valueNumber > 0 && valueNumber <= 399;
+}
+
+function isPageNumberToken(value: string): boolean {
+  return /^\d{1,4}$/.test(value) || isRomanPageNumber(value);
+}
+
+function stripBoundaryPageNumber(text: string): string | null {
+  const leading = text.trim().match(/^([\p{L}\d]+)[,.:;|·•-]?\s+(.+)$/u);
+  if (leading && isPageNumberToken(leading[1])) return leading[2].trim();
+
+  const trailing = text.trim().match(/^(.+?)\s+([\p{L}\d]+)[,.:;]?$/u);
+  if (trailing && isPageNumberToken(trailing[2])) return trailing[1].trim();
+  return null;
+}
+
+function isPageFurniture(
+  block: MarkdownBlock,
+  documentName: string,
+  blockIndex: number,
+  headingTitles: Set<string>,
+): boolean {
+  const { text } = block;
   const normalizedText = normalizeTitle(text);
   if (!normalizedText) return true;
 
   if (/^(?:page\s*)?\d+(?:\s*(?:of|\/)\s*\d+)?$/i.test(text.trim())) {
     return true;
+  }
+
+  const isHeading = /^h[1-6]$/.test(block.type);
+  if (!isHeading && text.trim().length >= 2 && isRomanPageNumber(text)) return true;
+
+  if (!isHeading) {
+    const withoutPageNumber = stripBoundaryPageNumber(text);
+    if (
+      withoutPageNumber
+      && headingTitles.has(normalizeTitle(withoutPageNumber))
+    ) {
+      return true;
+    }
   }
 
   if (blockIndex <= 3) {
@@ -123,17 +189,28 @@ export function prepareMarkdownPage(
   documentName: string,
 ): { renderedBlocks: MarkdownBlock[]; speakableBlocks: string[] } {
   const segments = splitPeAnnotatedSegments(stripLegacyPageChrome(markdown));
+  const parsedSegments = segments
+    .filter((segment) => !segment.hide && !segment.ttsSkip)
+    .map((segment) => parsePageMarkdown(segment.markdown));
+  const headingTitles = new Set(
+    parsedSegments
+      .flat()
+      .filter((block) => /^h[1-6]$/.test(block.type))
+      .map((block) => normalizeTitle(block.text))
+      .filter(Boolean),
+  );
   const renderedBlocks: MarkdownBlock[] = [];
   const speakableBlocks: string[] = [];
 
-  for (const segment of segments) {
-    // Reading layer = speakable layer. Skip anything TTS would ignore.
-    if (segment.hide || segment.ttsSkip) continue;
-
-    const parsed = parsePageMarkdown(segment.markdown);
+  for (const parsed of parsedSegments) {
     for (const block of parsed) {
       // Title / bare page numbers already live in app chrome — drop from the page body.
-      if (isPageFurniture(block.text, documentName, renderedBlocks.length)) {
+      if (isPageFurniture(
+        block,
+        documentName,
+        renderedBlocks.length,
+        headingTitles,
+      )) {
         continue;
       }
       renderedBlocks.push(block);
