@@ -8,7 +8,6 @@ import type {
   TtsServerStatus,
 } from '../types';
 import { FishVoicePicker } from './FishVoicePicker';
-import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -20,7 +19,6 @@ interface SettingsPanelProps {
   accountLabel?: string | null;
   isAnonymous?: boolean;
   cloudSync?: boolean;
-  onSignIn?: () => Promise<void>;
   onSignOut?: () => Promise<void>;
   onChange: (preferences: ReaderPreferences) => void;
   onSaveSecrets: (input: {
@@ -42,7 +40,6 @@ export function SettingsPanel({
   accountLabel = null,
   isAnonymous = false,
   cloudSync = false,
-  onSignIn,
   onSignOut,
   onChange,
   onSaveSecrets,
@@ -213,12 +210,6 @@ export function SettingsPanel({
               Without Google sign-in, clearing site data or switching browsers can lose synced books.
               The shared sample story stays available to everyone.
             </p>
-          ) : null}
-          {cloudSync && onSignIn ? (
-            <GoogleSignInButton
-              className="pe-settings-google"
-              onClick={() => void onSignIn()}
-            />
           ) : null}
           {cloudSync && onSignOut ? (
             <button

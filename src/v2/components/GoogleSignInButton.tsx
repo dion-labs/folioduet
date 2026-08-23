@@ -6,9 +6,13 @@ type GoogleSignInButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'ch
   children?: ReactNode;
 };
 
-function GoogleG() {
+interface GoogleMarkProps {
+  className?: string;
+}
+
+export function GoogleMark({ className = '' }: GoogleMarkProps) {
   return (
-    <svg className="pe-google-button-logo" viewBox="0 0 18 18" aria-hidden="true">
+    <svg className={`pe-google-mark ${className}`.trim()} viewBox="0 0 18 18" aria-hidden="true">
       <path
         fill="#4285f4"
         d="M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.909c1.702-1.567 2.684-3.874 2.684-6.614Z"
@@ -44,7 +48,7 @@ export function GoogleSignInButton({
       className={`pe-google-button ${className}`.trim()}
       disabled={disabled || busy}
     >
-      <GoogleG />
+      <GoogleMark className="pe-google-button-logo" />
       <span>{busy ? 'Connecting…' : children}</span>
       {busy ? <LoaderCircle size={16} className="pe-google-button-spinner pe-spin" aria-hidden="true" /> : null}
     </button>

@@ -48,7 +48,7 @@ import { ChapterListPanel } from './components/ChapterListPanel';
 import { ConsentBanner } from './components/ConsentBanner';
 import { FirstRunWelcome } from './components/FirstRunWelcome';
 import { GitHubMark } from './components/GitHubMark';
-import { GoogleSignInButton } from './components/GoogleSignInButton';
+import { GoogleMark, GoogleSignInButton } from './components/GoogleSignInButton';
 import { HandoffDialog } from './components/HandoffDialog';
 import { HandoffResumeDialog } from './components/HandoffResumeDialog';
 import { ImportDialog } from './components/ImportDialog';
@@ -329,6 +329,7 @@ export default function AppV2() {
   const [query, setQuery] = useState('');
   const [libraryOpen, setLibraryOpen] = useState(() => firebaseMode || !loadActiveDocumentId());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [guestAccountExpanded, setGuestAccountExpanded] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
@@ -2216,10 +2217,10 @@ export default function AppV2() {
   }, [guestSyncPromptSurface]);
 
   useEffect(() => {
-    if (firebaseMode && isAnonymousUser && settingsOpen) {
+    if (firebaseMode && isAnonymousUser && guestAccountExpanded) {
       void activationAnalytics.signupPromptShown('account');
     }
-  }, [firebaseMode, isAnonymousUser, settingsOpen]);
+  }, [firebaseMode, guestAccountExpanded, isAnonymousUser]);
 
   if (firebaseMode && authUser === undefined) {
     return <LoginGate busy busyMessage="Restoring your session…" />;
@@ -2252,6 +2253,7 @@ export default function AppV2() {
         focusActive && chromeVisible ? 'is-chrome-visible' : '',
         isFirstRunHome ? 'is-first-run' : '',
         showGuestSyncBanner ? 'has-guest-banner' : '',
+        isAnonymousUser && guestAccountExpanded ? 'has-expanded-guest-account' : '',
       ].filter(Boolean).join(' ')}
       data-theme={preferences.appearance}
     >
@@ -2286,17 +2288,51 @@ export default function AppV2() {
           {firebaseMode && authUser ? (
             <button
               type="button"
-              className={`pe-account-chip ${isAnonymousUser ? 'is-guest' : ''}`}
-              onClick={() => setSettingsOpen(true)}
-              aria-label="Account and settings"
+              className={[
+                'pe-account-chip',
+                isAnonymousUser ? 'is-guest' : '',
+                isAnonymousUser && guestAccountExpanded ? 'is-expanded' : '',
+              ].filter(Boolean).join(' ')}
+              onPointerEnter={(event) => {
+                if (isAnonymousUser && event.pointerType === 'mouse') {
+                  setGuestAccountExpanded(true);
+                }
+              }}
+              onPointerLeave={(event) => {
+                if (isAnonymousUser && event.pointerType === 'mouse') {
+                  setGuestAccountExpanded(false);
+                }
+              }}
+              onFocus={(event) => {
+                if (isAnonymousUser && event.currentTarget.matches(':focus-visible')) {
+                  setGuestAccountExpanded(true);
+                }
+              }}
+              onBlur={() => setGuestAccountExpanded(false)}
+              onClick={() => {
+                if (!isAnonymousUser) {
+                  setSettingsOpen(true);
+                  return;
+                }
+                if (!guestAccountExpanded) {
+                  setGuestAccountExpanded(true);
+                  return;
+                }
+                void handleGoogleSignIn();
+              }}
+              aria-label={isAnonymousUser ? 'Continue with Google' : 'Account and settings'}
+              title={isAnonymousUser ? 'Guest account — continue with Google' : undefined}
             >
-              {authUser.photoURL && !isAnonymousUser ? (
+              {isAnonymousUser ? (
+                <span className="pe-guest-account-icon" aria-hidden="true">
+                  <span className="pe-account-initials">G</span>
+                  <GoogleMark className="pe-guest-google-mark" />
+                </span>
+              ) : authUser.photoURL ? (
                 <img className="pe-account-avatar" src={authUser.photoURL} alt="" referrerPolicy="no-referrer" />
               ) : (
                 <span className="pe-account-initials" aria-hidden="true">
-                  {isAnonymousUser
-                    ? 'G'
-                    : (authUser.displayName || authUser.email || '?').slice(0, 1).toUpperCase()}
+                  {(authUser.displayName || authUser.email || '?').slice(0, 1).toUpperCase()}
                 </span>
               )}
               <span className="pe-account-label">
@@ -2306,6 +2342,9 @@ export default function AppV2() {
                     || authUser.email?.split('@')[0]
                     || 'Signed in')}
               </span>
+              {isAnonymousUser ? (
+                <span className="pe-guest-account-action">Continue with Google</span>
+              ) : null}
             </button>
           ) : null}
           <button className="pe-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
@@ -2779,7 +2818,6 @@ export default function AppV2() {
         }
         isAnonymous={isAnonymousUser}
         cloudSync={firebaseMode}
-        onSignIn={firebaseMode && isAnonymousUser ? handleGoogleSignIn : undefined}
         onSignOut={firebaseMode && !isAnonymousUser ? handleSignOut : undefined}
         onChange={setPreferences}
         onSaveSecrets={handleSaveSecrets}
