@@ -146,6 +146,78 @@ describe('buildBookStream plain-title promotion', () => {
   });
 });
 
+describe('buildBookStream semantic chapter boundaries', () => {
+  it('keeps deep subheadings on the same adaptive page as nearby prose', () => {
+    const stream = buildBookStream([
+      [
+        '#### 1 A Verified Chapter',
+        '',
+        'The opening paragraph introduces the subject.',
+        '',
+        '##### A short visual subheading',
+        '',
+        'The following paragraph continues the same chapter.',
+      ].join('\n'),
+    ], 'Example');
+
+    expect(stream.map((block) => ({ text: block.text, chapter: block.chapterBreak }))).toEqual([
+      { text: '1 A Verified Chapter', chapter: true },
+      { text: 'The opening paragraph introduces the subject.', chapter: false },
+      { text: 'A short visual subheading', chapter: false },
+      { text: 'The following paragraph continues the same chapter.', chapter: false },
+    ]);
+    expect(reflowBookPages([
+      '#### 1 A Verified Chapter\n\nFirst paragraph.\n\n##### Subheading\n\nSecond paragraph.',
+    ], 'Example', 100)).toHaveLength(1);
+  });
+
+  it('does not mistake a printed page number in a deep heading for a chapter', () => {
+    const stream = buildBookStream([
+      '##### 128 Sharp Tools\n\nThe existing chapter continues here.',
+    ], 'Example');
+
+    expect(stream[0]).toMatchObject({ text: '128 Sharp Tools', chapterBreak: false });
+  });
+
+  it('merges split chapter titles and drops an adjacent duplicate extraction copy', () => {
+    const stream = buildBookStream([
+      [
+        '#### 7 Why Did the Tower',
+        '#### of Babel Fail?',
+        '#### 7 Why Did theTower',
+        '#### of Babel Fail?',
+        '',
+        'The chapter body begins here.',
+      ].join('\n'),
+    ], 'Example');
+
+    expect(stream.map((block) => block.text)).toEqual([
+      '7 Why Did the Tower of Babel Fail?',
+      'The chapter body begins here.',
+    ]);
+    expect(stream.filter((block) => block.chapterBreak)).toHaveLength(1);
+  });
+
+  it('starts a fresh adaptive page at each verified chapter', () => {
+    const pages = reflowBookPages([
+      [
+        '#### 1 First Chapter',
+        '',
+        'First chapter body.',
+        '',
+        '#### 2 Second Chapter',
+        '',
+        'Second chapter body.',
+      ].join('\n'),
+    ], 'Example', 1000);
+
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toContain('First chapter body.');
+    expect(pages[0]).not.toContain('Second Chapter');
+    expect(pages[1]).toContain('2 Second Chapter');
+  });
+});
+
 describe('reflowBookPages', () => {
   it('packs body across source pages and breaks early on chapter headings', () => {
     const source = [

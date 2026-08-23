@@ -163,9 +163,81 @@ function blockToMarkdown(block: MarkdownBlock): string {
   return block.text;
 }
 
+function headingLevel(block: MarkdownBlock): number | null {
+  if (!/^h[1-6]$/.test(block.type)) return null;
+  return Number(block.type.slice(1));
+}
+
+function hasExplicitChapterSignal(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  return /^(?:chapter|part|book)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(normalized)
+    || /^\d{1,3}(?:\s*[.):—-])?\s+\p{L}/u.test(normalized)
+    || /^[ivxlcdm]{1,8}[.):—-]\s+\p{L}/iu.test(normalized)
+    || /^(?:preface|foreword|introduction|prologue|epilogue|afterword|appendix|conclusion)\b/i.test(normalized);
+}
+
+/** A visual heading is not automatically a page-breaking chapter. */
 function isChapterBreak(block: MarkdownBlock): boolean {
-  if (!block.type.startsWith('h')) return false;
-  return countWords(block.text) <= 12;
+  const level = headingLevel(block);
+  if (level === null || countWords(block.text) > 12) return false;
+  if (level >= 5) return false;
+  // Preserve conventional authored Markdown behavior while requiring stronger
+  // evidence for AnyDoc's typography-derived h4 headings. h5/h6 remain
+  // subordinate even when a printed page number resembles a chapter number.
+  return level <= 3 || hasExplicitChapterSignal(block.text);
+}
+
+function chapterKey(text: string): string {
+  return `chapter:${normalizeTitle(text).replace(/\s+/g, '')}`;
+}
+
+function pushRenderedBlock(
+  stream: BookStreamBlock[],
+  block: MarkdownBlock,
+  chapterBreak = isChapterBreak(block),
+  text = block.text,
+): void {
+  pushStreamBlock(stream, {
+    markdown: chapterBreak && text !== block.text
+      ? `${'#'.repeat(headingLevel(block) ?? 3)} ${text}`
+      : blockToMarkdown(block),
+    text,
+    inlineRuns: text === block.text ? block.inlineRuns : [{ text }],
+    type: block.type,
+    chapterBreak,
+    key: chapterBreak ? chapterKey(text) : undefined,
+    listKind: block.listKind,
+    listIndex: block.listIndex,
+    listDepth: block.listDepth,
+    tableCells: block.tableCells,
+    tableHeader: block.tableHeader,
+  });
+}
+
+/**
+ * AnyDoc can emit a wrapped chapter title as several consecutive headings.
+ * Join continuation lines, then let pushStreamBlock discard an immediately
+ * repeated extraction/header copy using a punctuation-insensitive key.
+ */
+function pushSemanticBlocks(stream: BookStreamBlock[], blocks: MarkdownBlock[]): void {
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (!isChapterBreak(block)) {
+      pushRenderedBlock(stream, block, false);
+      continue;
+    }
+
+    const level = headingLevel(block);
+    const titleParts = [block.text];
+    while (index + 1 < blocks.length) {
+      const next = blocks[index + 1];
+      if (headingLevel(next) !== level || hasExplicitChapterSignal(next.text)) break;
+      titleParts.push(next.text);
+      index += 1;
+    }
+    pushRenderedBlock(stream, block, true, titleParts.join(' ').replace(/\s+/g, ' ').trim());
+  }
 }
 
 /**
@@ -250,20 +322,7 @@ export function buildBookStream(sourcePages: string[], documentName: string): Bo
       }
     }
 
-    for (const block of prepared.renderedBlocks) {
-      pushStreamBlock(stream, {
-        markdown: blockToMarkdown(block),
-        text: block.text,
-        inlineRuns: block.inlineRuns,
-        type: block.type,
-        chapterBreak: isChapterBreak(block),
-        listKind: block.listKind,
-        listIndex: block.listIndex,
-        listDepth: block.listDepth,
-        tableCells: block.tableCells,
-        tableHeader: block.tableHeader,
-      });
-    }
+    pushSemanticBlocks(stream, prepared.renderedBlocks);
   }
 
   return stream;
