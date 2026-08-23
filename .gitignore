@@ -6,6 +6,7 @@ data/
 *.tsbuildinfo
 .DS_Store
 .scratch/
+/local-evals/
 .firebase/
 firebase-debug.log
 firestore-debug.log
