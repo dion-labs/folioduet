@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { BookStreamBlock } from './bookStream';
 import {
+  clearViewportPackCache,
   loadViewportPackCache,
   pagesFromStarts,
   saveViewportPackCache,
@@ -47,5 +48,17 @@ describe('viewportPackCache', () => {
     expect(loadViewportPackCache('doc-1', fingerprint, '2:400:500:1.00')?.pageStarts).toEqual([0, 1]);
     expect(loadViewportPackCache('doc-1', 'other', '2:400:500:1.00')).toBeNull();
     expect(loadViewportPackCache('doc-1', fingerprint, '2:480:500:1.00')).toBeNull();
+  });
+
+  it('clears the cached pack for one document', () => {
+    const stream = [block('a'), block('b')];
+    const fingerprint = streamFingerprint(stream);
+    saveViewportPackCache('doc-1', fingerprint, '2:400:500:1.00', [0, 1]);
+    saveViewportPackCache('doc-2', fingerprint, '2:400:500:1.00', [0, 1]);
+
+    clearViewportPackCache('doc-1');
+
+    expect(loadViewportPackCache('doc-1', fingerprint, '2:400:500:1.00')).toBeNull();
+    expect(loadViewportPackCache('doc-2', fingerprint, '2:400:500:1.00')).not.toBeNull();
   });
 });

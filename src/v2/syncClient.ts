@@ -1,6 +1,7 @@
 import type { LibraryDocument, ReaderPreferences } from './types';
 import { isFirebaseConfigured } from './firebase/app';
 import {
+  clearFirebaseProcessedPages,
   deleteFirebaseDocument,
   fetchFirebaseBootstrap,
   fetchProcessedPages,
@@ -214,6 +215,12 @@ export async function loadProcessedPages(
 ): Promise<Array<{ pageIndex: number; markdown: string }> | null> {
   if (!usesFirebaseSync()) return null;
   return fetchProcessedPages(requireUid(), documentId);
+}
+
+/** Remove generated text while preserving the library row and original file. */
+export async function clearProcessedPages(documentId: string): Promise<void> {
+  if (!usesFirebaseSync()) return;
+  await clearFirebaseProcessedPages(requireUid(), documentId);
 }
 
 export function toSyncedPreferences(preferences: ReaderPreferences): SyncedPreferences {

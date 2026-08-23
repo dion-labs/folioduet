@@ -13,6 +13,7 @@ import {
   Menu,
   Pause,
   Play,
+  RefreshCw,
   Settings,
   Smartphone,
   Square,
@@ -134,6 +135,7 @@ import {
   readSecrets,
   setSyncAuthUid,
   syncProcessedPages,
+  clearProcessedPages,
   toSyncedPreferences,
   uploadDocumentBlob,
   usesFirebaseSync,
@@ -149,8 +151,14 @@ import type {
 import { useContinuousTTS } from './useContinuousTTS';
 import { useMediaSession, toMediaSessionPlayback } from './useMediaSession';
 import { useMobileFocusChrome } from './useMobileFocusChrome';
-import { debugLog, isDebug, resetDebugFlagCache } from './debug';
+import {
+  debugLog,
+  hasDebugQueryParam,
+  isDebug,
+  resetDebugFlagCache,
+} from './debug';
 import type { TtsStreamPosition } from './ttsStream';
+import { clearViewportPackCache } from './viewportPackCache';
 import './styles.css';
 
 interface PendingProgress {
@@ -317,6 +325,8 @@ export default function AppV2() {
   const [documentLoading, setDocumentLoading] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [pdfExtractionStatus, setPdfExtractionStatus] = useState<PdfExtractionStatus | null>(null);
+  const [documentCacheVersion, setDocumentCacheVersion] = useState(0);
+  const [cacheResetBusy, setCacheResetBusy] = useState(false);
 
   const [preferences, setPreferences] = useState(loadPreferences);
   const [deviceSyncStatus, setDeviceSyncStatus] = useState<DeviceSyncStatus>('idle');
@@ -361,6 +371,8 @@ export default function AppV2() {
     return intent === 'demo' || intent === 'import' ? intent : null;
   })());
   const acquisitionIntentHandledRef = useRef(false);
+  const debugToolsEnabled = typeof window !== 'undefined'
+    && hasDebugQueryParam(window.location.search);
   const handoffArrivalRef = useRef<'url' | 'storage' | null>(null);
   const handoffBootstrappedRef = useRef(false);
   const handoffResumeShownRef = useRef(false);
@@ -1232,7 +1244,13 @@ export default function AppV2() {
     return () => {
       active = false;
     };
-  }, [activeDocument?.id, hydrateReady, preferences.pdfExtractor, updateDocument]);
+  }, [
+    activeDocument?.id,
+    documentCacheVersion,
+    hydrateReady,
+    preferences.pdfExtractor,
+    updateDocument,
+  ]);
 
   const handleViewportPageCount = useCallback((totalPages: number) => {
     if (!activeDocument || !bookStream) return;
@@ -1967,6 +1985,42 @@ export default function AppV2() {
     }
   }, [activeDocumentId, tts.stop]);
 
+  const clearActivePdfCache = useCallback(async () => {
+    if (!activeDocument || activeDocument.kind !== 'pdf' || !(source instanceof File)) return;
+    const confirmed = window.confirm(
+      `Clear generated text for “${activeDocument.name}” and rebuild it from the local PDF?`,
+    );
+    if (!confirmed) return;
+
+    setCacheResetBusy(true);
+    setDocumentError(null);
+    tts.stop();
+    try {
+      await clearProcessedPages(activeDocument.id);
+      clearViewportPackCache(activeDocument.id);
+      updateDocument(activeDocument.id, {
+        hasProcessedContent: false,
+        processedFormat: null,
+        updatedAt: Date.now(),
+      });
+      setBookStream(null);
+      setPageContent({ pageIndex: -1, blocks: [] });
+      setMarkdownBlocks([]);
+      setPaintedPage(null);
+      setPdfExtractionStatus(null);
+      setDocumentCacheVersion((current) => current + 1);
+      debugLog('cache', 'cleared PDF caches; starting re-extraction', {
+        documentId: activeDocument.id,
+      });
+    } catch (error) {
+      setDocumentError(
+        error instanceof Error ? error.message : 'The generated PDF cache could not be cleared.',
+      );
+    } finally {
+      setCacheResetBusy(false);
+    }
+  }, [activeDocument, source, tts.stop, updateDocument]);
+
   const pairOriginalPdf = useCallback(async (file: File) => {
     if (!activeDocument || activeDocument.kind !== 'markdown-zip') return;
     setPairBusy(true);
@@ -2527,6 +2581,20 @@ export default function AppV2() {
                       <ZoomIn size={17} />
                     </button>
                   </div>
+                  {debugToolsEnabled && activeDocument.kind === 'pdf' && !activeDocument.isSample ? (
+                    <button
+                      type="button"
+                      className="pe-icon-button pe-debug-cache-button"
+                      onClick={() => void clearActivePdfCache()}
+                      disabled={cacheResetBusy || documentLoading || !(source instanceof File)}
+                      aria-label="Clear generated PDF cache and reprocess"
+                      title={source instanceof File
+                        ? 'Clear generated PDF cache and reprocess'
+                        : 'Original PDF is not available on this device'}
+                    >
+                      <RefreshCw className={cacheResetBusy ? 'pe-spin' : undefined} size={17} />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="pe-icon-button pe-handoff-trigger"

@@ -263,6 +263,30 @@ export async function fetchProcessedPages(
   });
 }
 
+export async function clearFirebaseProcessedPages(
+  uid: string,
+  documentId: string,
+): Promise<void> {
+  const pages = await getDocs(pagesCol(uid, documentId));
+  const batchSize = 400;
+  for (let offset = 0; offset < pages.docs.length; offset += batchSize) {
+    const batch = writeBatch(getFirebaseDb());
+    for (const page of pages.docs.slice(offset, offset + batchSize)) {
+      batch.delete(page.ref);
+    }
+    await batch.commit();
+  }
+  await setDoc(
+    documentRef(uid, documentId),
+    {
+      hasProcessedContent: false,
+      processedFormat: null,
+      updatedAt: Date.now(),
+    },
+    { merge: true },
+  );
+}
+
 export async function deleteFirebaseDocument(uid: string, documentId: string): Promise<void> {
   const pages = await getDocs(pagesCol(uid, documentId));
   const batch = writeBatch(getFirebaseDb());

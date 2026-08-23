@@ -19,6 +19,12 @@ const ALL_SCOPES = ['resume', 'hydrate', 'sync', 'pack'] as const;
 
 export type DebugScope = (typeof ALL_SCOPES)[number] | 'all' | '*';
 
+/** Debug-only controls require an explicit query param, never the sticky flag. */
+export function hasDebugQueryParam(search: string): boolean {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  return params.has('debug');
+}
+
 /** Pure helper for tests / non-DOM use. */
 export function parseDebugFlagsFromSearch(search: string): Set<string> {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);

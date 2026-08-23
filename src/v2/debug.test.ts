@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { parseDebugFlagsFromSearch } from './debug';
+import { hasDebugQueryParam, parseDebugFlagsFromSearch } from './debug';
+
+describe('hasDebugQueryParam', () => {
+  it('only enables debug controls for an explicit query parameter', () => {
+    expect(hasDebugQueryParam('')).toBe(false);
+    expect(hasDebugQueryParam('?intent=import')).toBe(false);
+    expect(hasDebugQueryParam('?debug')).toBe(true);
+    expect(hasDebugQueryParam('?debug=cache')).toBe(true);
+  });
+});
 
 describe('parseDebugFlagsFromSearch', () => {
   it('returns empty when debug is absent', () => {

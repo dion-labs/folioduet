@@ -76,3 +76,11 @@ export function saveViewportPackCache(
     // quota / private mode — ignore
   }
 }
+
+export function clearViewportPackCache(documentId: string): void {
+  try {
+    localStorage.removeItem(CACHE_PREFIX + documentId);
+  } catch {
+    // private mode / disabled storage — nothing else to clear
+  }
+}
