@@ -463,12 +463,13 @@
 }
 
 .pe-account-chip.is-guest {
-  width: 78px;
+  width: 190px;
+  max-width: 92px;
   position: relative;
   overflow: hidden;
   border-style: solid;
   transition:
-    width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 320ms cubic-bezier(0.22, 1, 0.36, 1),
     color 180ms ease,
     background 180ms ease,
     border-color 180ms ease,
@@ -476,7 +477,7 @@
 }
 
 .pe-account-chip.is-guest.is-expanded {
-  width: 190px;
+  max-width: 190px;
   color: #1f1f1f;
   background: #fff;
   border-color: #747775;
@@ -3066,11 +3067,11 @@
   }
 
   .pe-account-chip.is-guest {
-    width: 34px;
+    max-width: 34px;
   }
 
   .pe-account-chip.is-guest.is-expanded {
-    width: 190px;
+    max-width: 190px;
     padding-right: 10px;
   }
 
