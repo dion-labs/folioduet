@@ -1174,6 +1174,16 @@
   font-size: 11px;
 }
 
+.pe-reader-nav .pe-debug-cache-button {
+  min-height: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding-inline: 9px;
+  color: var(--pe-accent);
+  font-size: 10px;
+}
+
 .pe-page-controls,
 .pe-zoom-controls,
 .pe-reader-nav-end {
@@ -3255,6 +3265,15 @@
 
   /* Keep Contents + handoff visible; zoom is secondary on phones. */
   .pe-reader-nav .pe-zoom-controls {
+    display: none;
+  }
+
+  .pe-reader-nav .pe-debug-cache-button {
+    width: 34px;
+    padding: 0;
+  }
+
+  .pe-reader-nav .pe-debug-cache-button span {
     display: none;
   }
 

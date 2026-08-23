@@ -1986,7 +1986,13 @@ export default function AppV2() {
   }, [activeDocumentId, tts.stop]);
 
   const clearActivePdfCache = useCallback(async () => {
-    if (!activeDocument || activeDocument.kind !== 'pdf' || !(source instanceof File)) return;
+    if (!activeDocument || activeDocument.kind !== 'pdf') return;
+    if (!(source instanceof File)) {
+      window.alert(
+        'The original PDF is not available on this device, so FolioDuet kept the synced text cache. Re-import the PDF here before reprocessing it.',
+      );
+      return;
+    }
     const confirmed = window.confirm(
       `Clear generated text for “${activeDocument.name}” and rebuild it from the local PDF?`,
     );
@@ -2584,15 +2590,16 @@ export default function AppV2() {
                   {debugToolsEnabled && activeDocument.kind === 'pdf' && !activeDocument.isSample ? (
                     <button
                       type="button"
-                      className="pe-icon-button pe-debug-cache-button"
+                      className="pe-button pe-button-secondary pe-debug-cache-button"
                       onClick={() => void clearActivePdfCache()}
-                      disabled={cacheResetBusy || documentLoading || !(source instanceof File)}
+                      disabled={cacheResetBusy || documentLoading}
                       aria-label="Clear generated PDF cache and reprocess"
                       title={source instanceof File
                         ? 'Clear generated PDF cache and reprocess'
-                        : 'Original PDF is not available on this device'}
+                        : 'Original PDF unavailable — tap for details'}
                     >
                       <RefreshCw className={cacheResetBusy ? 'pe-spin' : undefined} size={17} />
+                      <span>Reprocess</span>
                     </button>
                   ) : null}
                   <button
