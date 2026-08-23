@@ -204,6 +204,70 @@
   background: color-mix(in srgb, var(--pe-panel) 80%, transparent);
 }
 
+.pe-google-button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid #747775;
+  border-radius: 999px;
+  color: #1f1f1f;
+  background: #fff;
+  font-family: "Google Sans", Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.pe-google-button:hover:not(:disabled) {
+  background: #f8f9fa;
+  border-color: #5f6368;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.24);
+}
+
+.pe-google-button:active:not(:disabled) {
+  background: #f1f3f4;
+  box-shadow: none;
+}
+
+.pe-google-button:focus-visible {
+  outline: 3px solid color-mix(in srgb, #4285f4 38%, transparent);
+  outline-offset: 2px;
+}
+
+.pe-google-button:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.pe-google-button-logo {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: block;
+}
+
+.pe-google-button-spinner {
+  margin-left: 2px;
+  color: #5f6368;
+}
+
+.pe-login-google {
+  width: 100%;
+}
+
+.pe-settings-google {
+  margin-top: 12px;
+}
+
 .pe-guest-banner {
   display: flex;
   align-items: center;
@@ -227,9 +291,6 @@
 
 .pe-guest-sign-in {
   flex: 0 0 auto;
-  white-space: nowrap;
-  min-height: 34px;
-  padding-inline: 14px;
 }
 
 .pe-app.is-focus-reading .pe-guest-banner {
@@ -1799,7 +1860,8 @@
   line-height: 1.45;
 }
 
-.pe-handoff-warn .pe-button {
+.pe-handoff-warn .pe-button,
+.pe-handoff-warn .pe-google-button {
   margin-top: 10px;
 }
 
@@ -2663,6 +2725,24 @@
   line-height: 1.45;
 }
 
+.pe-welcome-account {
+  max-width: 540px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--pe-border);
+  color: var(--pe-text-soft);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pe-welcome-account .pe-google-button {
+  flex: 0 0 auto;
+}
+
 .pe-welcome-actions {
   flex-wrap: wrap;
   display: flex;
@@ -2962,6 +3042,15 @@
 }
 
 @media (max-width: 600px) {
+  .pe-guest-banner {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pe-guest-sign-in {
+    width: 100%;
+  }
+
   .pe-topbar {
     padding-inline: 10px;
   }
@@ -3077,6 +3166,17 @@
   .pe-welcome-copy > .pe-welcome-assurance {
     margin-top: 10px;
     font-size: 9px;
+  }
+
+  .pe-welcome-account {
+    align-items: stretch;
+    flex-direction: column;
+    margin-top: 16px;
+    padding-top: 14px;
+  }
+
+  .pe-welcome-account .pe-google-button {
+    width: 100%;
   }
 
   .pe-home-footer {

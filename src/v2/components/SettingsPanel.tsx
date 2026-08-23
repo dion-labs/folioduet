@@ -8,6 +8,7 @@ import type {
   TtsServerStatus,
 } from '../types';
 import { FishVoicePicker } from './FishVoicePicker';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -214,14 +215,10 @@ export function SettingsPanel({
             </p>
           ) : null}
           {cloudSync && onSignIn ? (
-            <button
-              type="button"
-              className="pe-button"
-              style={{ marginTop: 12 }}
+            <GoogleSignInButton
+              className="pe-settings-google"
               onClick={() => void onSignIn()}
-            >
-              Continue with Google
-            </button>
+            />
           ) : null}
           {cloudSync && onSignOut ? (
             <button

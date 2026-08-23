@@ -1,6 +1,7 @@
 import { Check, Copy, QrCode, Smartphone, X } from 'lucide-react';
 import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface HandoffDialogProps {
   open: boolean;
@@ -146,9 +147,7 @@ export function HandoffDialog({
                 Guest libraries stay on this browser. Google sign-in syncs the book so your phone can open it.
               </span>
               {onSignIn ? (
-                <button type="button" className="pe-button pe-button-primary" onClick={onSignIn}>
-                  Sign in with Google
-                </button>
+                <GoogleSignInButton onClick={onSignIn} />
               ) : null}
             </div>
           </div>

@@ -1,9 +1,11 @@
 import { BookOpen, LoaderCircle, Upload } from 'lucide-react';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface FirstRunWelcomeProps {
   demoBusy: boolean;
   onPlayDemo: () => void;
   onUploadPdf: () => void;
+  onGoogleSignIn?: () => void;
 }
 
 /** The empty-library experience: lead with value before asking for an account. */
@@ -11,6 +13,7 @@ export function FirstRunWelcome({
   demoBusy,
   onPlayDemo,
   onUploadPdf,
+  onGoogleSignIn,
 }: FirstRunWelcomeProps) {
   return (
     <section className="pe-welcome" aria-labelledby="pe-welcome-title">
@@ -45,6 +48,12 @@ export function FirstRunWelcome({
         <p className="pe-welcome-assurance">
           No account required. Your original PDF stays on this device.
         </p>
+        {onGoogleSignIn ? (
+          <div className="pe-welcome-account">
+            <span>Want your library and reading position on every device?</span>
+            <GoogleSignInButton onClick={onGoogleSignIn} />
+          </div>
+        ) : null}
       </div>
       <div className="pe-welcome-visual" aria-hidden="true">
         <div className="pe-visual-card pe-visual-card-back">

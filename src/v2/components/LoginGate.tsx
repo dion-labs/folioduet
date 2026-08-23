@@ -1,5 +1,6 @@
 import { BookOpen, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface LoginGateProps {
   busy?: boolean;
@@ -67,15 +68,12 @@ export function LoginGate({
           </p>
           {showRecovery ? (
             <>
-              <button
-                type="button"
-                className="pe-login-btn"
+              <GoogleSignInButton
+                className="pe-login-google"
+                busy={signingIn}
                 disabled={pending}
                 onClick={() => void handleGoogle()}
-              >
-                {signingIn ? <LoaderCircle size={18} className="pe-spin" /> : null}
-                {signingIn ? 'Connecting…' : 'Continue with Google'}
-              </button>
+              />
               {onRetryGuest ? (
                 <button
                   type="button"

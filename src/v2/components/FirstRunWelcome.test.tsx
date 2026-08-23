@@ -25,4 +25,19 @@ describe('FirstRunWelcome', () => {
     expect(markup).toContain('Opening the demo…');
     expect(markup.match(/disabled=""/g)).toHaveLength(2);
   });
+
+  it('offers an easy-to-find Google sign-in without making an account mandatory', () => {
+    const markup = renderToStaticMarkup(
+      <FirstRunWelcome
+        demoBusy={false}
+        onPlayDemo={() => undefined}
+        onUploadPdf={() => undefined}
+        onGoogleSignIn={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain('No account required');
+    expect(markup).toContain('Want your library and reading position on every device?');
+    expect(markup).toContain('Continue with Google');
+  });
 });

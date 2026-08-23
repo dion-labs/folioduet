@@ -48,6 +48,7 @@ import { ChapterListPanel } from './components/ChapterListPanel';
 import { ConsentBanner } from './components/ConsentBanner';
 import { FirstRunWelcome } from './components/FirstRunWelcome';
 import { GitHubMark } from './components/GitHubMark';
+import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { HandoffDialog } from './components/HandoffDialog';
 import { HandoffResumeDialog } from './components/HandoffResumeDialog';
 import { ImportDialog } from './components/ImportDialog';
@@ -2318,13 +2319,10 @@ export default function AppV2() {
           <p>
             You’re browsing as a guest. Sign in with Google to keep your library across devices.
           </p>
-          <button
-            type="button"
-            className="pe-button pe-button-secondary pe-guest-sign-in"
+          <GoogleSignInButton
+            className="pe-guest-sign-in"
             onClick={() => void handleGoogleSignIn()}
-          >
-            Sign in
-          </button>
+          />
         </div>
       ) : null}
 
@@ -2366,13 +2364,7 @@ export default function AppV2() {
               <p>{handoffError}</p>
               <div className="pe-handoff-banner-actions">
                 {firebaseMode && isAnonymousUser ? (
-                  <button
-                    type="button"
-                    className="pe-button pe-button-secondary"
-                    onClick={() => void handleGoogleSignIn()}
-                  >
-                    Sign in
-                  </button>
+                  <GoogleSignInButton onClick={() => void handleGoogleSignIn()} />
                 ) : null}
                 <button
                   type="button"
@@ -2702,6 +2694,9 @@ export default function AppV2() {
                   setImportOpen(true);
                   void activationAnalytics.importOpen('first_run');
                 }}
+                onGoogleSignIn={firebaseMode && isAnonymousUser
+                  ? () => { void handleGoogleSignIn(); }
+                  : undefined}
               />
               <footer className="pe-home-footer">
                 <p className="pe-home-footer-note">
