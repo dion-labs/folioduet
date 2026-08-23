@@ -440,6 +440,7 @@
 
 .pe-topbar-actions {
   gap: 7px;
+  position: relative;
 }
 
 .pe-account-chip {
@@ -460,6 +461,10 @@
 .pe-account-chip:hover {
   background: var(--pe-surface-hover);
   border-color: var(--pe-border-strong);
+}
+
+.pe-account-chip:disabled {
+  cursor: wait;
 }
 
 .pe-account-chip.is-guest {
@@ -573,6 +578,9 @@
   position: absolute;
   left: 40px;
   right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   color: #1f1f1f;
   font-family: "Google Sans", Roboto, Arial, sans-serif;
@@ -593,6 +601,63 @@
 .pe-account-chip.is-guest.is-expanded .pe-guest-account-action {
   opacity: 1;
   transform: translateX(0);
+}
+
+.pe-guest-auth-error {
+  width: min(310px, calc(100vw - 24px));
+  position: absolute;
+  top: calc(100% + 14px);
+  right: 41px;
+  z-index: 52;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  color: var(--pe-text);
+  background: var(--pe-panel-strong);
+  border: 1px solid color-mix(in srgb, #db7168 52%, var(--pe-border));
+  border-radius: 12px;
+  box-shadow: var(--pe-shadow);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pe-guest-auth-error::before {
+  width: 9px;
+  height: 9px;
+  position: absolute;
+  top: -5px;
+  right: 24px;
+  content: '';
+  background: var(--pe-panel-strong);
+  border-top: 1px solid color-mix(in srgb, #db7168 52%, var(--pe-border));
+  border-left: 1px solid color-mix(in srgb, #db7168 52%, var(--pe-border));
+  transform: rotate(45deg);
+}
+
+.pe-guest-auth-error > span {
+  flex: 1 1 auto;
+}
+
+.pe-guest-auth-error > button {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  margin: -4px -4px 0 0;
+  padding: 0;
+  color: var(--pe-text-soft);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.pe-guest-auth-error > button:hover,
+.pe-guest-auth-error > button:focus-visible {
+  color: var(--pe-text);
+  background: var(--pe-surface-hover);
 }
 
 .pe-icon-button {
@@ -3150,6 +3215,10 @@
   .pe-app.has-expanded-guest-account .pe-brand-home > div,
   .pe-app.has-expanded-guest-account .pe-topbar-actions > .pe-icon-button {
     display: none;
+  }
+
+  .pe-guest-auth-error {
+    right: 0;
   }
 
   .pe-guest-banner {

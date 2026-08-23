@@ -78,6 +78,25 @@ function authErrorCode(error: unknown): string {
   return String((error as { code?: string }).code ?? '');
 }
 
+/** Convert Firebase's developer-facing auth errors into concise recovery guidance. */
+export function getGoogleSignInErrorMessage(error: unknown): string | null {
+  switch (authErrorCode(error)) {
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return null;
+    case 'auth/network-request-failed':
+      return 'Couldn’t reach Google. Check your connection, then try again.';
+    case 'auth/popup-blocked':
+      return 'Your browser blocked the sign-in window. Allow pop-ups, then try again.';
+    case 'auth/unauthorized-domain':
+      return 'Google sign-in isn’t available on this domain yet.';
+    case 'auth/operation-not-allowed':
+      return 'Google sign-in is temporarily unavailable.';
+    default:
+      return 'Google sign-in didn’t finish. Please try again.';
+  }
+}
+
 export function subscribeAuth(callback: (user: User | null) => void): () => void {
   if (!isFirebaseConfigured()) {
     callback(null);

@@ -83,6 +83,7 @@ import { isFirebaseConfigured } from './firebase/app';
 import {
   completeGoogleRedirectIfPresent,
   ensureAnonymousSession,
+  getGoogleSignInErrorMessage,
   signInWithGoogle,
   signOutUser,
   subscribeAuth,
@@ -330,6 +331,8 @@ export default function AppV2() {
   const [libraryOpen, setLibraryOpen] = useState(() => firebaseMode || !loadActiveDocumentId());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guestAccountExpanded, setGuestAccountExpanded] = useState(false);
+  const [googleSignInBusy, setGoogleSignInBusy] = useState(false);
+  const [googleSignInError, setGoogleSignInError] = useState<string | null>(null);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
@@ -386,6 +389,7 @@ export default function AppV2() {
   const pageStartsRef = useRef<number[]>([0]);
   /** After a page-anchor resume, write the healed stream index once pack settles. */
   const needsStreamHealRef = useRef(false);
+  const googleSignInPendingRef = useRef(false);
 
   const updateDocument = useCallback((documentId: string, patch: Partial<LibraryDocument>) => {
     setDocuments((current) => current.map((document) => (
@@ -2172,13 +2176,31 @@ export default function AppV2() {
   }, [resetLocalSessionLibrary]);
 
   const handleGoogleSignIn = useCallback(async () => {
+    if (googleSignInPendingRef.current) return;
+    googleSignInPendingRef.current = true;
     pendingLibraryMergeRef.current = documents;
     setAuthBootError(null);
-    const result = await signInWithGoogle();
-    if (result.previousAnonymousUid) {
-      // Keep the guest library snapshot; bootstrap merge runs after auth settles.
-      pendingLibraryMergeRef.current = documents;
-      setHydrateReady(false);
+    setGoogleSignInError(null);
+    setGoogleSignInBusy(true);
+    try {
+      const result = await signInWithGoogle();
+      if (result.previousAnonymousUid) {
+        // Keep the guest library snapshot; bootstrap merge runs after auth settles.
+        pendingLibraryMergeRef.current = documents;
+        setHydrateReady(false);
+      }
+    } catch (error) {
+      const message = getGoogleSignInErrorMessage(error);
+      if (message) {
+        setGoogleSignInError(message);
+        setGuestAccountExpanded(true);
+        console.warn('[FolioDuet] Google sign-in failed', error);
+      } else {
+        setGuestAccountExpanded(false);
+      }
+    } finally {
+      googleSignInPendingRef.current = false;
+      setGoogleSignInBusy(false);
     }
   }, [documents]);
 
@@ -2198,6 +2220,12 @@ export default function AppV2() {
   }, []);
 
   const isAnonymousUser = Boolean(authUser?.isAnonymous);
+  const guestAccountCtaOpen = guestAccountExpanded || googleSignInBusy || Boolean(googleSignInError);
+  const guestAccountActionLabel = googleSignInBusy
+    ? 'Connecting…'
+    : googleSignInError
+      ? 'Try Google again'
+      : 'Continue with Google';
   const isFirstRunHome = !activeDocument && documents.length === 0;
   const showGuestSyncBanner = Boolean(
     firebaseMode
@@ -2228,7 +2256,7 @@ export default function AppV2() {
   if (firebaseMode && !authUser) {
     return (
       <LoginGate
-        error={authBootError || 'Guest session unavailable.'}
+        error={googleSignInError || authBootError || 'Guest session unavailable.'}
         onGoogleSignIn={handleGoogleSignIn}
         onRetryGuest={handleRetryGuest}
       />
@@ -2253,7 +2281,7 @@ export default function AppV2() {
         focusActive && chromeVisible ? 'is-chrome-visible' : '',
         isFirstRunHome ? 'is-first-run' : '',
         showGuestSyncBanner ? 'has-guest-banner' : '',
-        isAnonymousUser && guestAccountExpanded ? 'has-expanded-guest-account' : '',
+        isAnonymousUser && guestAccountCtaOpen ? 'has-expanded-guest-account' : '',
       ].filter(Boolean).join(' ')}
       data-theme={preferences.appearance}
     >
@@ -2286,66 +2314,97 @@ export default function AppV2() {
         </div>
         <div className="pe-topbar-actions">
           {firebaseMode && authUser ? (
-            <button
-              type="button"
-              className={[
-                'pe-account-chip',
-                isAnonymousUser ? 'is-guest' : '',
-                isAnonymousUser && guestAccountExpanded ? 'is-expanded' : '',
-              ].filter(Boolean).join(' ')}
-              onPointerEnter={(event) => {
-                if (isAnonymousUser && event.pointerType === 'mouse') {
-                  setGuestAccountExpanded(true);
-                }
-              }}
-              onPointerLeave={(event) => {
-                if (isAnonymousUser && event.pointerType === 'mouse') {
-                  setGuestAccountExpanded(false);
-                }
-              }}
-              onFocus={(event) => {
-                if (isAnonymousUser && event.currentTarget.matches(':focus-visible')) {
-                  setGuestAccountExpanded(true);
-                }
-              }}
-              onBlur={() => setGuestAccountExpanded(false)}
-              onClick={() => {
-                if (!isAnonymousUser) {
-                  setSettingsOpen(true);
-                  return;
-                }
-                if (!guestAccountExpanded) {
-                  setGuestAccountExpanded(true);
-                  return;
-                }
-                void handleGoogleSignIn();
-              }}
-              aria-label={isAnonymousUser ? 'Continue with Google' : 'Account and settings'}
-              title={isAnonymousUser ? 'Guest account — continue with Google' : undefined}
-            >
-              {isAnonymousUser ? (
-                <span className="pe-guest-account-icon" aria-hidden="true">
-                  <span className="pe-account-initials">G</span>
-                  <GoogleMark className="pe-guest-google-mark" />
+            <>
+              <button
+                type="button"
+                className={[
+                  'pe-account-chip',
+                  isAnonymousUser ? 'is-guest' : '',
+                  isAnonymousUser && guestAccountCtaOpen ? 'is-expanded' : '',
+                ].filter(Boolean).join(' ')}
+                onPointerEnter={(event) => {
+                  if (isAnonymousUser && event.pointerType === 'mouse') {
+                    setGuestAccountExpanded(true);
+                  }
+                }}
+                onPointerLeave={(event) => {
+                  if (
+                    isAnonymousUser
+                    && event.pointerType === 'mouse'
+                    && !googleSignInBusy
+                    && !googleSignInError
+                  ) {
+                    setGuestAccountExpanded(false);
+                  }
+                }}
+                onFocus={(event) => {
+                  if (isAnonymousUser && event.currentTarget.matches(':focus-visible')) {
+                    setGuestAccountExpanded(true);
+                  }
+                }}
+                onBlur={() => {
+                  if (!googleSignInBusy && !googleSignInError) setGuestAccountExpanded(false);
+                }}
+                onClick={() => {
+                  if (!isAnonymousUser) {
+                    setSettingsOpen(true);
+                    return;
+                  }
+                  if (googleSignInBusy) return;
+                  if (!guestAccountCtaOpen) {
+                    setGuestAccountExpanded(true);
+                    return;
+                  }
+                  void handleGoogleSignIn();
+                }}
+                disabled={isAnonymousUser && googleSignInBusy}
+                aria-busy={isAnonymousUser ? googleSignInBusy : undefined}
+                aria-describedby={isAnonymousUser && googleSignInError ? 'pe-google-sign-in-error' : undefined}
+                aria-label={isAnonymousUser ? guestAccountActionLabel : 'Account and settings'}
+                title={isAnonymousUser ? `Guest account — ${guestAccountActionLabel}` : undefined}
+              >
+                {isAnonymousUser ? (
+                  <span className="pe-guest-account-icon" aria-hidden="true">
+                    <span className="pe-account-initials">G</span>
+                    <GoogleMark className="pe-guest-google-mark" />
+                  </span>
+                ) : authUser.photoURL ? (
+                  <img className="pe-account-avatar" src={authUser.photoURL} alt="" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="pe-account-initials" aria-hidden="true">
+                    {(authUser.displayName || authUser.email || '?').slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <span className="pe-account-label">
+                  {isAnonymousUser
+                    ? 'Guest'
+                    : (authUser.displayName?.split(' ')[0]
+                      || authUser.email?.split('@')[0]
+                      || 'Signed in')}
                 </span>
-              ) : authUser.photoURL ? (
-                <img className="pe-account-avatar" src={authUser.photoURL} alt="" referrerPolicy="no-referrer" />
-              ) : (
-                <span className="pe-account-initials" aria-hidden="true">
-                  {(authUser.displayName || authUser.email || '?').slice(0, 1).toUpperCase()}
-                </span>
-              )}
-              <span className="pe-account-label">
-                {isAnonymousUser
-                  ? 'Guest'
-                  : (authUser.displayName?.split(' ')[0]
-                    || authUser.email?.split('@')[0]
-                    || 'Signed in')}
-              </span>
-              {isAnonymousUser ? (
-                <span className="pe-guest-account-action">Continue with Google</span>
+                {isAnonymousUser ? (
+                  <span className="pe-guest-account-action">
+                    {googleSignInBusy ? <LoaderCircle size={14} className="pe-spin" aria-hidden="true" /> : null}
+                    {guestAccountActionLabel}
+                  </span>
+                ) : null}
+              </button>
+              {isAnonymousUser && googleSignInError ? (
+                <div className="pe-guest-auth-error" id="pe-google-sign-in-error" role="alert">
+                  <span>{googleSignInError}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGoogleSignInError(null);
+                      setGuestAccountExpanded(false);
+                    }}
+                    aria-label="Dismiss Google sign-in error"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
               ) : null}
-            </button>
+            </>
           ) : null}
           <button className="pe-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings size={18} />
@@ -2360,6 +2419,7 @@ export default function AppV2() {
           </p>
           <GoogleSignInButton
             className="pe-guest-sign-in"
+            busy={googleSignInBusy}
             onClick={() => void handleGoogleSignIn()}
           />
         </div>

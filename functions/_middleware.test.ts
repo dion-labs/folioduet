@@ -26,6 +26,7 @@ describe('legacy host middleware', () => {
     });
 
     expect(await response.text()).toBe('canonical');
+    expect(response.headers.get('cross-origin-opener-policy')).toBe('same-origin-allow-popups');
     expect(next).toHaveBeenCalledOnce();
   });
 });
