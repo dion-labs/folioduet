@@ -13,6 +13,11 @@ export type BookStreamBlock = {
   chapterBreak: boolean;
   key: string;
   words: number;
+  listKind?: MarkdownBlock['listKind'];
+  listIndex?: number;
+  listDepth?: number;
+  tableCells?: MarkdownInlineRun[][];
+  tableHeader?: boolean;
 };
 
 type PackHeightOptions = {
@@ -307,6 +312,11 @@ export function streamPageToMarkdownBlocks(page: BookStreamBlock[]): MarkdownBlo
       inlineRuns,
       tokens,
       globalWordOffset: offset,
+      listKind: block.listKind,
+      listIndex: block.listIndex,
+      listDepth: block.listDepth,
+      tableCells: block.tableCells,
+      tableHeader: block.tableHeader,
     };
     offset += tokens.length;
     return next;

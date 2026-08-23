@@ -257,6 +257,11 @@ export function buildBookStream(sourcePages: string[], documentName: string): Bo
         inlineRuns: block.inlineRuns,
         type: block.type,
         chapterBreak: isChapterBreak(block),
+        listKind: block.listKind,
+        listIndex: block.listIndex,
+        listDepth: block.listDepth,
+        tableCells: block.tableCells,
+        tableHeader: block.tableHeader,
       });
     }
   }

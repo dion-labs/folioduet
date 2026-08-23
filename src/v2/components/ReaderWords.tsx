@@ -1,4 +1,4 @@
-import type { ElementType, ReactNode } from 'react';
+import type { CSSProperties, ElementType, ReactNode } from 'react';
 import {
   tokenizeBlock,
   type MarkdownBlock,
@@ -15,6 +15,7 @@ interface TokenizedTextProps {
   activeWordIndex: number;
   playbackState: 'idle' | 'buffering' | 'playing' | 'paused';
   onWordSelect: (blockIndex: number, wordIndex: number) => void;
+  startOffset?: number;
 }
 
 function TokenizedText({
@@ -26,6 +27,7 @@ function TokenizedText({
   activeWordIndex,
   playbackState,
   onWordSelect,
+  startOffset = 0,
 }: TokenizedTextProps) {
   const renderRun = (run: MarkdownInlineRun, runIndex: number, runStart: number) => {
     const runEnd = runStart + run.text.length;
@@ -69,7 +71,7 @@ function TokenizedText({
   };
 
   const runs = inlineRuns?.length ? inlineRuns : [{ text }];
-  let runStart = 0;
+  let runStart = startOffset;
   return <>{runs.map((run, index) => {
     const rendered = renderRun(run, index, runStart);
     runStart += run.text.length;
@@ -98,23 +100,87 @@ export function ReaderWords({
     return (
       <div className="pe-prose">
         {markdownBlocks.map((block, blockIndex) => {
-          const tag: ElementType = block.type === 'li' ? 'li' : block.type === 'code' ? 'pre' : block.type;
+          const isCurrent = activeBlockIndex === blockIndex;
+          const tokenizedText = (
+            <TokenizedText
+              text={block.text}
+              inlineRuns={block.inlineRuns}
+              tokens={block.tokens}
+              blockIndex={blockIndex}
+              activeBlockIndex={activeBlockIndex}
+              activeWordIndex={activeWordIndex}
+              playbackState={playbackState}
+              onWordSelect={onWordSelect}
+            />
+          );
+
+          if (block.type === 'li') {
+            const marker = block.listKind === 'ordered' ? `${block.listIndex ?? 1}.` : '•';
+            return (
+              <div
+                key={`${block.type}-${blockIndex}-${block.globalWordOffset}`}
+                className={`pe-markdown-list-item ${isCurrent ? 'is-current-block' : ''}`}
+                style={{ '--pe-list-depth': block.listDepth ?? 0 } as CSSProperties}
+              >
+                <span className="pe-markdown-list-marker" aria-hidden="true">{marker}</span>
+                <div>{tokenizedText}</div>
+              </div>
+            );
+          }
+
+          if (block.type === 'table-row' && block.tableCells?.length) {
+            let nextCellSearchStart = 0;
+            const firstTableRow = markdownBlocks[blockIndex - 1]?.type !== 'table-row';
+            const lastTableRow = markdownBlocks[blockIndex + 1]?.type !== 'table-row';
+            return (
+              <div
+                key={`${block.type}-${blockIndex}-${block.globalWordOffset}`}
+                className={[
+                  'pe-markdown-table-row',
+                  block.tableHeader ? 'is-header' : '',
+                  firstTableRow ? 'is-first' : '',
+                  lastTableRow ? 'is-last' : '',
+                  isCurrent ? 'is-current-block' : '',
+                ].filter(Boolean).join(' ')}
+                style={{ '--pe-table-columns': block.tableCells.length } as CSSProperties}
+              >
+                {block.tableCells.map((cellRuns, cellIndex) => {
+                  const cellText = cellRuns.map((run) => run.text).join('');
+                  const foundAt = cellText ? block.text.indexOf(cellText, nextCellSearchStart) : nextCellSearchStart;
+                  const startOffset = foundAt >= 0 ? foundAt : nextCellSearchStart;
+                  nextCellSearchStart = startOffset + cellText.length;
+                  return (
+                    <div className="pe-markdown-table-cell" key={`${blockIndex}-cell-${cellIndex}`}>
+                      <TokenizedText
+                        text={block.text}
+                        inlineRuns={cellRuns}
+                        tokens={block.tokens}
+                        blockIndex={blockIndex}
+                        activeBlockIndex={activeBlockIndex}
+                        activeWordIndex={activeWordIndex}
+                        playbackState={playbackState}
+                        onWordSelect={onWordSelect}
+                        startOffset={startOffset}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          }
+
+          const tag: ElementType = block.type === 'code'
+            ? 'pre'
+            : block.type === 'table-row'
+              ? 'div'
+              : block.type;
           const Tag = tag;
           return (
             <Tag
               key={`${block.type}-${blockIndex}-${block.globalWordOffset}`}
-              className={activeBlockIndex === blockIndex ? 'is-current-block' : undefined}
+              className={isCurrent ? 'is-current-block' : undefined}
             >
-              <TokenizedText
-                text={block.text}
-                inlineRuns={block.inlineRuns}
-                tokens={block.tokens}
-                blockIndex={blockIndex}
-                activeBlockIndex={activeBlockIndex}
-                activeWordIndex={activeWordIndex}
-                playbackState={playbackState}
-                onWordSelect={onWordSelect}
-              />
+              {tokenizedText}
             </Tag>
           );
         })}

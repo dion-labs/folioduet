@@ -3,7 +3,7 @@
 Status: drafts only. Nothing in this file has been published or sent.
 Prepared: 2026-08-16.
 
-Product name: **FolioDuet**. Use `folioduet.dionlabs.ai` as the canonical product URL. Keep `pageecho.dionlabs.ai` as a permanent migration redirect and retain the existing `github.com/dion-labs/pageecho` repository link.
+Product name: **FolioDuet**. Use `folioduet.dionlabs.ai` as the canonical product URL. Keep `pageecho.dionlabs.ai` as a permanent migration redirect and use `github.com/dion-labs/folioduet` as the canonical repository link.
 
 ## 25-second demo video
 
@@ -50,7 +50,7 @@ Attach the video. A link can go in the first reply if preserving a clean video-f
 
 > Try it: https://folioduet.dionlabs.ai/x
 >
-> Source: https://github.com/dion-labs/pageecho
+> Source: https://github.com/dion-labs/folioduet
 >
 > It currently works best with text-based PDFs; scanned/image-only PDFs are not supported yet.
 
@@ -85,7 +85,7 @@ Post only after the tracked demo and first-run changes are live.
 >
 > 25-second demo: `[VIDEO OR DIRECT VIDEO LINK]`
 > Try it: https://folioduet.dionlabs.ai/hermes
-> Source: https://github.com/dion-labs/pageecho
+> Source: https://github.com/dion-labs/folioduet
 >
 > I am looking for very specific feedback: where do you hesitate between landing, playing the demo, and starting your own PDF? If you try it, please tell me the browser/device and whether the PDF had selectable text.
 
@@ -103,7 +103,7 @@ Submit to `api-showcase`, not `voice-models`, unless the post is specifically ab
 >
 > Demo (25 sec): `[ATTACH VIDEO]`
 > Try it: https://folioduet.dionlabs.ai/fish
-> Source: https://github.com/dion-labs/pageecho
+> Source: https://github.com/dion-labs/folioduet
 >
 > No account is required to try it. The original PDF stays on the importing device; text selected for neural playback is sent for TTS processing.
 >

@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { marked, type Token, type Tokens } from 'marked';
 import { TTSEngine, TextToken, TTSEngineConfig, tokenizeBlock } from './TTSEngine';
 
 export { tokenizeBlock };
@@ -268,12 +269,17 @@ export function useTTS({
 }
 
 export interface MarkdownBlock {
-  type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'li' | 'blockquote' | 'code' | 'hr';
+  type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'li' | 'blockquote' | 'code' | 'table-row';
   text: string;           // Flattened rendered text spoken by TTS
   raw: string;            // Original untouched block markdown
   inlineRuns: MarkdownInlineRun[]; // Formatting-aware representation for the reader
   tokens: TextToken[];    // Word tokens for this block
   globalWordOffset: number; // Sum of tokens in all preceding blocks on this page
+  listKind?: 'ordered' | 'unordered';
+  listIndex?: number;
+  listDepth?: number;
+  tableCells?: MarkdownInlineRun[][];
+  tableHeader?: boolean;
 }
 
 export interface MarkdownInlineRun {
@@ -285,8 +291,6 @@ export interface MarkdownInlineRun {
   href?: string;
 }
 
-const MARKDOWN_TABLE_RULE = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
-
 function decodeMarkdownEntities(text: string): string {
   return text
     .replace(/&nbsp;/gi, ' ')
@@ -294,7 +298,15 @@ function decodeMarkdownEntities(text: string): string {
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
     .replace(/&quot;/gi, '"')
-    .replace(/&#(?:39|x27);/gi, "'");
+    .replace(/&apos;|&#(?:39|x27);/gi, "'")
+    .replace(/&#(\d+);/g, (_, value: string) => {
+      const codePoint = Number.parseInt(value, 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : '';
+    })
+    .replace(/&#x([\da-f]+);/gi, (_, value: string) => {
+      const codePoint = Number.parseInt(value, 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : '';
+    });
 }
 
 function safeMarkdownHref(value: string): string | undefined {
@@ -330,66 +342,114 @@ function applyInlineMark(
   return runs.map((run) => ({ ...run, ...mark }));
 }
 
-function parseInlineMarkdown(markdown: string): MarkdownInlineRun[] {
-  const runs: MarkdownInlineRun[] = [];
-  const pattern = /!\[([^\]]*)\]\(([^)]*)\)|\[([^\]]+)\]\(([^)]*)\)|(`+)([\s\S]*?)\5|\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|~~([\s\S]+?)~~|\*([^*\n]+?)\*|_([^_\n]+?)_/g;
-  let cursor = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(markdown)) !== null) {
-    if (match.index > cursor) {
-      runs.push({ text: decodeMarkdownEntities(markdown.slice(cursor, match.index)) });
-    }
-
-    if (match[1] !== undefined) {
-      // PDF image destinations are usually unavailable after extraction; retain useful alt text.
-      runs.push(...applyInlineMark(parseInlineMarkdown(match[1]), { emphasis: true }));
-    } else if (match[3] !== undefined) {
-      runs.push(...applyInlineMark(parseInlineMarkdown(match[3]), {
-        href: safeMarkdownHref(match[4]),
-      }));
-    } else if (match[6] !== undefined) {
-      runs.push({ text: decodeMarkdownEntities(match[6]), code: true });
-    } else if (match[7] !== undefined || match[8] !== undefined) {
-      runs.push(...applyInlineMark(parseInlineMarkdown(match[7] ?? match[8]), { strong: true }));
-    } else if (match[9] !== undefined) {
-      runs.push(...applyInlineMark(parseInlineMarkdown(match[9]), { strikethrough: true }));
-    } else {
-      runs.push(...applyInlineMark(parseInlineMarkdown(match[10] ?? match[11]), { emphasis: true }));
-    }
-    cursor = pattern.lastIndex;
-  }
-
-  if (cursor < markdown.length) {
-    runs.push({ text: decodeMarkdownEntities(markdown.slice(cursor)) });
-  }
-  return mergeInlineRuns(runs);
+function stripHtmlTags(html: string): string {
+  return decodeMarkdownEntities(html
+    .replace(/<(?:script|style)[^>]*>[\s\S]*?<\/(?:script|style)>/gi, ' ')
+    .replace(/<br\s*\/?\s*>/gi, ' ')
+    .replace(/<[^>]+>/g, ' '));
 }
 
-/** Parse Markdown once: formatting stays in runs, while their text is safe for TTS. */
-export function markdownToInlineRuns(markdown: string): MarkdownInlineRun[] {
-  const normalized = markdown
-    .split('\n')
-    .filter((line) => !MARKDOWN_TABLE_RULE.test(line) && !/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line))
-    .join('\n')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/```[^\n]*\n?/g, ' ')
-    .replace(/~~~[^\n]*\n?/g, ' ')
-    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')
-    .replace(/^\s*\[[^\]]+\]:\s+\S+.*$/gm, ' ')
-    .replace(/<(?:(?:https?:\/\/|mailto:)[^>]+)>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\$\$([\s\S]*?)\$\$/g, '$1')
-    .replace(/\\[()[\]]/g, ' ')
-    .replace(/^\s*#{1,6}\s+/gm, '')
-    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, '')
-    .replace(/\\([\\`*_[\]{}()#+.!|>~-])/g, '$1')
-    .replace(/\|/g, ' ')
-    .replace(/\n/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function normalizeInlineRuns(runs: MarkdownInlineRun[]): MarkdownInlineRun[] {
+  const normalized = mergeInlineRuns(runs.map((run) => ({
+    ...run,
+    text: decodeMarkdownEntities(run.text).replace(/\s+/g, ' '),
+  })));
+  if (normalized.length === 0) return [];
+  normalized[0].text = normalized[0].text.replace(/^\s+/, '');
+  normalized[normalized.length - 1].text = normalized[normalized.length - 1].text.replace(/\s+$/, '');
+  return mergeInlineRuns(normalized);
+}
 
-  return parseInlineMarkdown(normalized);
+function tokenTextRuns(
+  tokens: Token[] | undefined,
+  mark: Omit<MarkdownInlineRun, 'text'> = {},
+): MarkdownInlineRun[] {
+  if (!tokens) return [];
+  const runs: MarkdownInlineRun[] = [];
+
+  for (const token of tokens) {
+    switch (token.type) {
+      case 'hr':
+      case 'def':
+      case 'checkbox':
+        break;
+      case 'space':
+        runs.push({ text: ' ', ...mark });
+        break;
+      case 'br':
+        runs.push({ text: ' ', ...mark });
+        break;
+      case 'escape':
+        runs.push({ text: token.text, ...mark });
+        break;
+      case 'codespan':
+        runs.push({ text: token.text, ...mark, code: true });
+        break;
+      case 'code':
+        runs.push({ text: token.text, ...mark, code: true });
+        break;
+      case 'strong':
+        runs.push(...tokenTextRuns(token.tokens, { ...mark, strong: true }));
+        break;
+      case 'em':
+        runs.push(...tokenTextRuns(token.tokens, { ...mark, emphasis: true }));
+        break;
+      case 'del':
+        runs.push(...tokenTextRuns(token.tokens, { ...mark, strikethrough: true }));
+        break;
+      case 'link': {
+        // Autolinks are destinations, not prose. Named links retain their human label.
+        if (token.text.trim() === token.href.trim()) break;
+        runs.push(...tokenTextRuns(token.tokens, {
+          ...mark,
+          href: safeMarkdownHref(token.href),
+        }));
+        break;
+      }
+      case 'image':
+        if (token.text.trim()) {
+          runs.push(...applyInlineMark(
+            token.tokens?.length ? tokenTextRuns(token.tokens) : [{ text: token.text }],
+            { ...mark, emphasis: true },
+          ));
+        }
+        break;
+      case 'html': {
+        const text = stripHtmlTags(token.text);
+        if (text.trim()) runs.push({ text, ...mark });
+        break;
+      }
+      case 'table': {
+        const cells = [token.header, ...token.rows].flat();
+        cells.forEach((cell, index) => {
+          if (index > 0) runs.push({ text: ' ', ...mark });
+          runs.push(...tokenTextRuns(cell.tokens, mark));
+        });
+        break;
+      }
+      case 'list':
+        (token as Tokens.List).items.forEach((item, index) => {
+          if (index > 0) runs.push({ text: ' ', ...mark });
+          runs.push(...tokenTextRuns(item.tokens, mark));
+        });
+        break;
+      default: {
+        const childTokens = 'tokens' in token ? token.tokens : undefined;
+        if (childTokens?.length) {
+          runs.push(...tokenTextRuns(childTokens, mark));
+        } else if ('text' in token && typeof token.text === 'string') {
+          runs.push({ text: token.text, ...mark });
+        }
+      }
+    }
+  }
+  return normalizeInlineRuns(runs);
+}
+
+/** Parse CommonMark/GFM once: formatting stays in runs, while syntax never reaches TTS. */
+export function markdownToInlineRuns(markdown: string): MarkdownInlineRun[] {
+  if (!markdown.trim()) return [];
+  return tokenTextRuns(marked.lexer(markdown, { gfm: true }));
 }
 
 export function markdownToSpeakableText(markdown: string): string {
@@ -398,95 +458,78 @@ export function markdownToSpeakableText(markdown: string): string {
 
 export function parsePageMarkdown(markdown: string): MarkdownBlock[] {
   if (!markdown) return [];
-
-  const normalized = markdown.replace(/\r\n/g, '\n');
-  const lines = normalized.split('\n');
   const blocks: Omit<MarkdownBlock, 'tokens' | 'globalWordOffset'>[] = [];
 
-  let currentBlockType: MarkdownBlock['type'] | null = null;
-  let currentLines: string[] = [];
-
-  const flushCurrentBlock = () => {
-    if (currentLines.length === 0) return;
-    const raw = currentLines.join('\n').trim();
-    if (!raw) {
-      currentLines = [];
-      return;
-    }
-
-    let type = currentBlockType || 'p';
-    let text = raw;
-
-    if (type === 'h1' && text.startsWith('# ')) text = text.slice(2);
-    else if (type === 'h2' && text.startsWith('## ')) text = text.slice(3);
-    else if (type === 'h3' && text.startsWith('### ')) text = text.slice(4);
-    else if (type === 'h4' && text.startsWith('#### ')) text = text.slice(5);
-    else if (type === 'h5' && text.startsWith('##### ')) text = text.slice(6);
-    else if (type === 'h6' && text.startsWith('###### ')) text = text.slice(7);
-    else if (type === 'blockquote') {
-      text = text.replace(/^>\s*/gm, '');
-    } else if (type === 'li') {
-      if (text.startsWith('- ')) text = text.slice(2);
-      else if (text.startsWith('* ')) text = text.slice(2);
-    }
-
-    const inlineRuns = markdownToInlineRuns(text);
-    text = inlineRuns.map((run) => run.text).join('').trim();
-    if (!text) {
-      currentLines = [];
-      currentBlockType = null;
-      return;
-    }
-
-    blocks.push({
-      type,
-      text,
-      raw,
-      inlineRuns,
-    });
-
-    currentLines = [];
-    currentBlockType = null;
+  const pushBlock = (
+    type: MarkdownBlock['type'],
+    raw: string,
+    inlineRuns: MarkdownInlineRun[],
+    extras: Partial<Omit<MarkdownBlock, 'type' | 'raw' | 'text' | 'inlineRuns' | 'tokens' | 'globalWordOffset'>> = {},
+  ) => {
+    const runs = normalizeInlineRuns(inlineRuns);
+    const text = runs.map((run) => run.text).join('').trim();
+    if (!text) return;
+    blocks.push({ type, raw: raw.trim(), inlineRuns: runs, text, ...extras });
   };
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
+  const visitList = (token: Tokens.List, depth: number) => {
+    token.items.forEach((item, itemOffset) => {
+      const ownTokens = item.tokens.filter((child) => child.type !== 'list');
+      pushBlock('li', item.raw, tokenTextRuns(ownTokens), {
+        listKind: token.ordered ? 'ordered' : 'unordered',
+        listIndex: token.ordered ? Number(token.start || 1) + itemOffset : undefined,
+        listDepth: depth,
+      });
+      item.tokens.forEach((child) => {
+        if (child.type === 'list') visitList(child as Tokens.List, depth + 1);
+      });
+    });
+  };
 
-    if (trimmed === '') {
-      flushCurrentBlock();
-      continue;
-    }
-
-    let lineType: MarkdownBlock['type'] = 'p';
-    if (trimmed.startsWith('# ')) lineType = 'h1';
-    else if (trimmed.startsWith('## ')) lineType = 'h2';
-    else if (trimmed.startsWith('### ')) lineType = 'h3';
-    else if (trimmed.startsWith('#### ')) lineType = 'h4';
-    else if (trimmed.startsWith('##### ')) lineType = 'h5';
-    else if (trimmed.startsWith('###### ')) lineType = 'h6';
-    else if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) lineType = 'li';
-    else if (trimmed.startsWith('> ')) lineType = 'blockquote';
-
-    if (lineType !== 'p') {
-      flushCurrentBlock();
-      currentBlockType = lineType;
-      currentLines.push(line);
-      if (lineType.startsWith('h')) {
-        flushCurrentBlock();
+  for (const token of marked.lexer(markdown.replace(/\r\n?/g, '\n'), { gfm: true })) {
+    switch (token.type) {
+      case 'heading':
+        pushBlock(`h${Math.min(6, Math.max(1, token.depth))}` as MarkdownBlock['type'], token.raw, tokenTextRuns(token.tokens));
+        break;
+      case 'paragraph':
+      case 'text':
+        pushBlock('p', token.raw, tokenTextRuns(token.tokens ?? [token]));
+        break;
+      case 'blockquote':
+        pushBlock('blockquote', token.raw, tokenTextRuns(token.tokens));
+        break;
+      case 'code':
+        pushBlock('code', token.raw, [{ text: token.text, code: true }]);
+        break;
+      case 'list':
+        visitList(token as Tokens.List, 0);
+        break;
+      case 'table': {
+        const table = token as Tokens.Table;
+        const rows = [table.header, ...table.rows];
+        rows.forEach((cells, rowIndex) => {
+          const tableCells = cells.map((cell) => tokenTextRuns(cell.tokens));
+          const joined: MarkdownInlineRun[] = [];
+          tableCells.forEach((cellRuns, cellIndex) => {
+            if (cellIndex > 0) joined.push({ text: ' ' });
+            joined.push(...cellRuns);
+          });
+          pushBlock('table-row', rowIndex === 0 ? token.raw : '', joined, {
+            tableCells,
+            tableHeader: rowIndex === 0,
+          });
+        });
+        break;
       }
-    } else {
-      if (currentBlockType && currentBlockType !== 'p' && currentBlockType !== 'blockquote' && currentBlockType !== 'li') {
-        flushCurrentBlock();
+      case 'html': {
+        const text = stripHtmlTags(token.text);
+        if (text.trim()) pushBlock('p', token.raw, [{ text }]);
+        break;
       }
-      if (!currentBlockType) {
-        currentBlockType = 'p';
-      }
-      currentLines.push(line);
+      default:
+        break;
     }
   }
-
-  flushCurrentBlock();
 
   let currentOffset = 0;
   const decoratedBlocks: MarkdownBlock[] = [];

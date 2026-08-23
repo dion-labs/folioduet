@@ -5,7 +5,7 @@
   "description": "A calmer PDF reader with word-aligned listening and private cloud sync",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dion-labs/pageecho.git"
+    "url": "https://github.com/dion-labs/folioduet.git"
   },
   "license": "MIT",
   "type": "module",
@@ -26,6 +26,7 @@
     "firebase": "^12.17.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.24.0",
+    "marked": "^18.0.10",
     "pdfjs-dist": "^4.4.168",
     "qrcode": "^1.5.4",
     "react": "^19.2.7",

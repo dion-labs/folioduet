@@ -27,4 +27,32 @@ describe('ReaderWords Markdown rendering', () => {
     expect(html).toContain('is-active is-playing');
     expect(markdownBlocks[0].text).toBe('Bold words, the guide, and system design.');
   });
+
+  it('renders list markers and table cells instead of their Markdown source', () => {
+    const markdownBlocks = parsePageMarkdown([
+      '2. Second item',
+      '3. **Third item**',
+      '',
+      '| Name | Value |',
+      '| --- | --- |',
+      '| Voice | `calm` |',
+    ].join('\n'));
+    const html = renderToStaticMarkup(
+      <ReaderWords
+        markdownBlocks={markdownBlocks}
+        plainBlocks={[]}
+        activeBlockIndex={3}
+        activeWordIndex={1}
+        playbackState="playing"
+        onWordSelect={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('pe-markdown-list-marker');
+    expect(html).toContain('>2.<');
+    expect(html).toContain('>3.<');
+    expect(html).toContain('pe-markdown-table-row is-header');
+    expect(html).toContain('pe-markdown-table-cell');
+    expect(html).not.toContain('| --- |');
+  });
 });

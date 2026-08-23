@@ -1183,7 +1183,9 @@
 .pe-prose p,
 .pe-prose li,
 .pe-prose blockquote,
-.pe-prose pre {
+.pe-prose pre,
+.pe-markdown-list-item,
+.pe-markdown-table-row {
   margin: 0 0 1.15em;
   transition: background 180ms ease, box-shadow 180ms ease;
 }
@@ -1191,6 +1193,12 @@
 .pe-prose p.is-current-block,
 .pe-prose li.is-current-block,
 .pe-prose blockquote.is-current-block {
+  background: linear-gradient(90deg, rgba(240, 110, 79, 0.065), transparent 70%);
+  box-shadow: -4px 0 0 rgba(240, 110, 79, 0.45);
+}
+
+.pe-markdown-list-item.is-current-block,
+.pe-markdown-table-row.is-current-block {
   background: linear-gradient(90deg, rgba(240, 110, 79, 0.065), transparent 70%);
   box-shadow: -4px 0 0 rgba(240, 110, 79, 0.45);
 }
@@ -1234,6 +1242,53 @@
 
 .pe-prose li {
   margin-left: 22px;
+}
+
+.pe-markdown-list-item {
+  display: grid;
+  grid-template-columns: 1.8em minmax(0, 1fr);
+  margin-left: calc(var(--pe-list-depth, 0) * 1.5em);
+}
+
+.pe-markdown-list-marker {
+  color: #73756e;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  padding-right: 0.55em;
+  user-select: none;
+}
+
+.pe-markdown-table-row {
+  display: grid;
+  grid-template-columns: repeat(var(--pe-table-columns), minmax(0, 1fr));
+  margin-bottom: 0;
+  border: 1px solid #d8d6cd;
+  border-bottom: 0;
+}
+
+.pe-markdown-table-row.is-first {
+  border-radius: 5px 5px 0 0;
+}
+
+.pe-markdown-table-row.is-last {
+  margin-bottom: 1.15em;
+  border-bottom: 1px solid #d8d6cd;
+  border-radius: 0 0 5px 5px;
+}
+
+.pe-markdown-table-row.is-header {
+  background: rgba(47, 45, 39, 0.055);
+  font-weight: 700;
+}
+
+.pe-markdown-table-cell {
+  min-width: 0;
+  padding: 0.45em 0.6em;
+  overflow-wrap: anywhere;
+}
+
+.pe-markdown-table-cell + .pe-markdown-table-cell {
+  border-left: 1px solid #d8d6cd;
 }
 
 .pe-prose a {

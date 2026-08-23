@@ -4,7 +4,7 @@ import { yieldToMain } from './yieldToMain';
 function tagForType(type: BookStreamBlock['type']): string {
   if (type === 'li') return 'li';
   if (type === 'code') return 'pre';
-  if (type === 'hr') return 'hr';
+  if (type === 'table-row') return 'div';
   return type;
 }
 
@@ -52,7 +52,8 @@ function createMeasureHost(width: number, fontScale: number): { host: HTMLDivEle
 function appendBlock(prose: HTMLElement, block: BookStreamBlock) {
   const tag = tagForType(block.type);
   const el = document.createElement(tag);
-  if (tag !== 'hr') fillTokenizedText(el, block.text);
+  if (block.type === 'table-row') el.className = 'pe-markdown-table-row';
+  fillTokenizedText(el, block.text);
   prose.appendChild(el);
   return el;
 }
