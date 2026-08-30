@@ -10,6 +10,7 @@ import {
   ListTree,
   LoaderCircle,
   Menu,
+  MessageCircle,
   Pause,
   Play,
   RefreshCw,
@@ -47,6 +48,7 @@ import {
 import { ChapterListPanel } from './components/ChapterListPanel';
 import { ConsentBanner } from './components/ConsentBanner';
 import { FirstRunWelcome } from './components/FirstRunWelcome';
+import { FeedbackDialog } from './components/FeedbackDialog';
 import { FolioDuetAvatar } from './components/FolioDuetAvatar';
 import { GitHubMark } from './components/GitHubMark';
 import { GoogleMark, GoogleSignInButton } from './components/GoogleSignInButton';
@@ -80,6 +82,7 @@ import {
 import { activationAnalytics, installActivationAnalytics } from './firebase';
 import { installGlobalErrorReporting } from './firebase/analytics';
 import { isFirebaseConfigured } from './firebase/app';
+import { submitFeedback } from './firebase/feedback';
 import {
   completeGoogleRedirectIfPresent,
   ensureAnonymousSession,
@@ -357,6 +360,7 @@ export default function AppV2() {
   const hydrateReadyRef = useRef(hydrateReady);
   hydrateReadyRef.current = hydrateReady;
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [handoffUrl, setHandoffUrl] = useState('');
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [handoffResume, setHandoffResume] = useState<HandoffTarget | null>(null);
@@ -2331,6 +2335,12 @@ export default function AppV2() {
   const guestSyncPromptSurface = showGuestSyncBanner
     ? (activeDocument ? 'reader' : 'empty_library')
     : null;
+  const feedbackSurface = activeDocument ? 'reader' : 'home';
+  const feedbackVoiceMode = preferences.fishAudioEnabled
+    ? 'fish'
+    : preferences.inworldEnabled
+      ? 'inworld'
+      : 'system';
 
   useEffect(() => {
     if (guestSyncPromptSurface) {
@@ -2521,6 +2531,19 @@ export default function AppV2() {
               </button>
             )
           ) : null}
+          <button
+            type="button"
+            className="pe-feedback-trigger"
+            onClick={() => {
+              setFeedbackOpen(true);
+              void activationAnalytics.feedbackOpen(feedbackSurface);
+            }}
+            aria-label="Share feedback"
+            title="Tell us what got in your way"
+          >
+            <MessageCircle size={16} />
+            <span>Feedback</span>
+          </button>
           <button className="pe-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings size={18} />
           </button>
@@ -3043,6 +3066,23 @@ export default function AppV2() {
           if (handoffResume) applyHandoffTarget(handoffResume);
         }}
         onDismiss={dismissPendingHandoff}
+      />
+      <FeedbackDialog
+        open={feedbackOpen}
+        context={{
+          surface: feedbackSurface,
+          documentKind: activeDocument?.kind ?? 'none',
+          isSample: Boolean(
+            activeDocument?.isSample
+            || isCatalogSampleDocumentId(activeDocument?.id ?? ''),
+          ),
+          voiceMode: feedbackVoiceMode,
+        }}
+        onSubmit={submitFeedback}
+        onSubmitted={(category) => {
+          void activationAnalytics.feedbackSubmit(category, feedbackSurface);
+        }}
+        onClose={() => setFeedbackOpen(false)}
       />
       <LegalDialog docId={legalDoc} onClose={closeLegalDoc} />
       <ConsentBanner />

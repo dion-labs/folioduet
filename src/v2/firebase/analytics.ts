@@ -7,6 +7,7 @@ import {
   resolveFirstTouchAttribution,
   type FirstTouchAttribution,
 } from './attribution';
+import type { FeedbackCategory, FeedbackSurface } from './feedback';
 
 export type AnalyticsParams = Record<string, string | number | boolean | undefined>;
 
@@ -170,6 +171,12 @@ export const activationAnalytics = {
     trackEvent('signup_prompt_shown', { surface }),
   signupComplete: async (method: 'google' | 'other' = 'google'): Promise<void> =>
     trackEvent('signup_complete', { method }),
+  feedbackOpen: async (surface: FeedbackSurface): Promise<void> =>
+    trackEvent('feedback_open', { surface }),
+  feedbackSubmit: async (
+    category: FeedbackCategory,
+    surface: FeedbackSurface,
+  ): Promise<void> => trackEvent('feedback_submit', { category, surface }),
 };
 
 export function installGlobalErrorReporting(): () => void {

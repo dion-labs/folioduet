@@ -41,6 +41,8 @@ describe('analytics', () => {
     await activationAnalytics.ownDocumentListened3Minutes('pdf', 'fish');
     await activationAnalytics.signupPromptShown('account');
     await activationAnalytics.signupComplete('google');
+    await activationAnalytics.feedbackOpen('reader');
+    await activationAnalytics.feedbackSubmit('voice_quality', 'reader');
 
     expect(mocks.logEvent.mock.calls.map((call) => call[1])).toEqual([
       'demo_start',
@@ -52,6 +54,8 @@ describe('analytics', () => {
       'own_document_listened_3m',
       'signup_prompt_shown',
       'signup_complete',
+      'feedback_open',
+      'feedback_submit',
     ]);
     expect(mocks.logEvent).toHaveBeenCalledWith(
       expect.anything(),

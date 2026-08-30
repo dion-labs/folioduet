@@ -53,7 +53,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDoc> = {
   privacy: {
     id: 'privacy',
     title: 'Privacy',
-    updated: '2026-08-02',
+    updated: '2026-08-30',
     sections: [
       {
         heading: 'What we store',
@@ -71,6 +71,13 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDoc> = {
         ],
       },
       {
+        heading: 'Product feedback',
+        body: [
+          'If you choose to send feedback, we store the category, the message you enter, and minimal product context such as whether you were on the home or reader screen, the document type, sample status, and selected voice mode.',
+          'Feedback uses your existing private guest or signed-in Firebase session for abuse protection, but the submitted record does not include your email address or book content and cannot be read back by app clients.',
+        ],
+      },
+      {
         heading: 'Processors',
         body: [
           'Authentication and cloud data use Google Firebase. Optional speech features may send text you choose to play to third-party TTS providers (for example Fish Audio or Inworld) using a sponsor key or your own key.',
@@ -80,6 +87,7 @@ export const LEGAL_DOCS: Record<LegalDocId, LegalDoc> = {
         heading: 'Retention and deletion',
         body: [
           'You can delete books from your library in the app. Signing out of a guest session or clearing site data removes local guest state.',
+          'Product feedback is retained only while it remains useful for understanding and improving FolioDuet.',
           'To request deletion of a signed-in cloud library, contact Dion Labs via the GitHub organization.',
         ],
       },

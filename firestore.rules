@@ -35,6 +35,37 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Product feedback is write-only from the public app. Anonymous Firebase
+    // sessions may create a tightly bounded record, but no client can browse,
+    // edit, or delete the resulting feedback collection.
+    function validFolioDuetFeedback(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'category', 'message', 'surface', 'documentKind',
+          'isSample', 'voiceMode', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'category', 'message', 'surface', 'documentKind',
+          'isSample', 'voiceMode', 'createdAt'
+        ])
+        && data.schemaVersion == 1
+        && data.category in [
+          'getting_started', 'voice_quality', 'reading_experience',
+          'missing_feature', 'something_broke', 'other'
+        ]
+        && data.message is string
+        && data.message.size() <= 2000
+        && data.surface in ['home', 'reader']
+        && data.documentKind in ['none', 'pdf', 'markdown-zip']
+        && data.isSample is bool
+        && data.voiceMode in ['fish', 'inworld', 'system']
+        && data.createdAt == request.time;
+    }
+
+    match /folioduet_feedback/{feedbackId} {
+      allow create: if isSignedIn() && validFolioDuetFeedback(request.resource.data);
+      allow read, update, delete: if false;
+    }
+
     // --- Boxie encrypted vault spike ---
     // Mail content must already be encrypted by the device. These rules provide
     // owner isolation, schema bounds, and stale-epoch rejection; they cannot inspect
