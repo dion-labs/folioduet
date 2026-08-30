@@ -113,7 +113,7 @@ Submit to `api-showcase`, not `voice-models`, unless the post is specifically ab
 >
 > Current limitation: it needs a PDF with selectable text and does not export an MP3/M4B.
 
-Do not claim an official partnership, use Fish's logo without permission, or imply the temporary free API is a permanent FolioDuet entitlement. Fish Audio currently states that `s2.1-pro-free` runs through August 31, 2026 under fair use, without SLA or latency guarantees: [official announcement](https://fish.audio/ar/blog/s2-1-pro-free-api/?articleLocale=en).
+Do not claim an official partnership, use Fish's logo without permission, or imply the temporary free API is a permanent FolioDuet entitlement. Fish Audio currently states that `s2.1-pro-free` runs through November 30, 2026 under fair use, without SLA or latency guarantees: [official extension announcement](https://www.reddit.com/r/FishAudio_Official/comments/1vzzqft/fish_audio_anniversary_update_s21_pro_free_trial/).
 
 ## Asset checklist before any post
 

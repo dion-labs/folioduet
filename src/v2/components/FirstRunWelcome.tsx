@@ -55,19 +55,17 @@ export function FirstRunWelcome({
           </div>
         ) : null}
       </div>
-      <div className="pe-welcome-visual" aria-hidden="true">
-        <div className="pe-visual-card pe-visual-card-back">
-          <span>04</span>
-          <p>“The reader’s attention moves with the voice.”</p>
-        </div>
-        <div className="pe-visual-card pe-visual-card-front">
-          <div className="pe-visual-line" />
-          <div className="pe-visual-line is-short" />
-          <p>
-            Ideas become clearer when text and sound{' '}
-            <span className="pe-visual-highlight">move together</span>
-          </p>
-          <div className="pe-visual-wave"><i /><i /><i /><i /><i /><i /><i /></div>
+      <div className="pe-welcome-visual pe-welcome-narrator" aria-hidden="true">
+        <div className="pe-narrator-orbit" />
+        <img
+          src="/brand/folioduet-narrator-v1.png"
+          alt=""
+          width="800"
+          height="1200"
+        />
+        <div className="pe-narrator-caption">
+          <span>Text and voice</span>
+          <strong>Moving together</strong>
         </div>
       </div>
     </section>

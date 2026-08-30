@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   ArrowRight,
-  BookOpen,
   ChevronLeft,
   ChevronRight,
   Columns2,
@@ -48,6 +47,7 @@ import {
 import { ChapterListPanel } from './components/ChapterListPanel';
 import { ConsentBanner } from './components/ConsentBanner';
 import { FirstRunWelcome } from './components/FirstRunWelcome';
+import { FolioDuetMark } from './components/FolioDuetMark';
 import { GitHubMark } from './components/GitHubMark';
 import { GoogleMark, GoogleSignInButton } from './components/GoogleSignInButton';
 import { HandoffDialog } from './components/HandoffDialog';
@@ -2365,7 +2365,7 @@ export default function AppV2() {
             }}
             aria-label="Go to home"
           >
-            <span className="pe-brand-mark"><BookOpen size={18} /></span>
+            <span className="pe-brand-mark"><FolioDuetMark /></span>
             <div>
               <strong>FolioDuet</strong>
               <span>Read with every sense</span>

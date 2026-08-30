@@ -82,7 +82,7 @@ export function SettingsPanel({
   };
 
   const getRemainingFreeTime = () => {
-    const endDate = new Date('2026-09-01T00:00:00Z');
+    const endDate = new Date('2026-12-01T00:00:00Z');
     const now = new Date();
     const diffTime = endDate.getTime() - now.getTime();
     if (diffTime <= 0) {
@@ -356,7 +356,7 @@ export function SettingsPanel({
                   <div className="pe-cooldown-note">
                     <span>🐝</span>
                     <span>
-                      <strong>Free S2.1 Pro active:</strong> {getRemainingFreeTime()} (expires Sept 1, 2026)
+                      <strong>Free S2.1 Pro active:</strong> {getRemainingFreeTime()} (through Nov 30, 2026)
                     </span>
                   </div>
                 )}
