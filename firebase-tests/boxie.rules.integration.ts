@@ -39,12 +39,15 @@ function vaultData(epoch = 1) {
   };
 }
 
-function objectData(epoch = 1) {
+function objectData(
+  epoch = 1,
+  contentType = "application/vnd.boxie.synthetic+json"
+) {
   return {
     schemaVersion: 1,
     epoch,
     algorithm: "AES-256-GCM",
-    contentType: "application/vnd.boxie.synthetic+json",
+    contentType,
     nonce: "AAECAwQFBgcICQoL",
     ciphertext: "opaque-ciphertext-with-auth-tag",
     wrappedKeyNonce: "CwwNDg8QERITFBUW",
@@ -101,6 +104,30 @@ describe("shared Dion Labs Firestore rules: Boxie", () => {
     );
     await assertSucceeds(setDoc(object, objectData()));
     await assertSucceeds(getDoc(object));
+    await assertSucceeds(setDoc(
+      doc(
+        alice,
+        "boxie",
+        "alice",
+        "vaults",
+        "vault_1234567890123456",
+        "objects",
+        "conversation_snapshot"
+      ),
+      objectData(1, "application/vnd.boxie.conversation-snapshot+json")
+    ));
+    await assertFails(setDoc(
+      doc(
+        alice,
+        "boxie",
+        "alice",
+        "vaults",
+        "vault_1234567890123456",
+        "objects",
+        "unknown_type"
+      ),
+      objectData(1, "application/json")
+    ));
   });
 
   it("allows atomic first-device creation using the post-transaction root epoch", async () => {

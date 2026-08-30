@@ -138,7 +138,10 @@ service cloud.firestore {
         && data.schemaVersion == 1
         && data.epoch is int
         && data.algorithm == 'AES-256-GCM'
-        && data.contentType == 'application/vnd.boxie.synthetic+json'
+        && data.contentType in [
+          'application/vnd.boxie.synthetic+json',
+          'application/vnd.boxie.conversation-snapshot+json'
+        ]
         && data.nonce is string
         && data.nonce.size() <= 32
         && data.ciphertext is string
