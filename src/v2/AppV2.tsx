@@ -47,7 +47,7 @@ import {
 import { ChapterListPanel } from './components/ChapterListPanel';
 import { ConsentBanner } from './components/ConsentBanner';
 import { FirstRunWelcome } from './components/FirstRunWelcome';
-import { FolioDuetMark } from './components/FolioDuetMark';
+import { FolioDuetAvatar } from './components/FolioDuetAvatar';
 import { GitHubMark } from './components/GitHubMark';
 import { GoogleMark, GoogleSignInButton } from './components/GoogleSignInButton';
 import { HandoffDialog } from './components/HandoffDialog';
@@ -2203,13 +2203,7 @@ export default function AppV2() {
       <div className="pe-page-body" ref={pageBodyRef}>
         {showPreparingSpinner ? (
           <div className="pe-reader-state">
-            <img
-              className="pe-reader-state-mascot"
-              src="/brand/folioduet-mascot-v1.png"
-              alt=""
-              width="88"
-              height="88"
-            />
+            <FolioDuetAvatar className="pe-reader-state-narrator" />
             <strong>
               {documentLoading && activeDocument?.kind === 'pdf'
                 ? 'Extracting text from PDF…'
@@ -2388,7 +2382,7 @@ export default function AppV2() {
             }}
             aria-label="Go to home"
           >
-            <span className="pe-brand-mark"><FolioDuetMark /></span>
+            <span className="pe-brand-mark"><FolioDuetAvatar /></span>
             <div>
               <strong>FolioDuet</strong>
               <span>Read with every sense</span>

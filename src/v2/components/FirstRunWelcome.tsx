@@ -1,4 +1,5 @@
 import { BookOpen, LoaderCircle, Upload } from 'lucide-react';
+import { FolioDuetAvatar } from './FolioDuetAvatar';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface FirstRunWelcomeProps {
@@ -50,12 +51,7 @@ export function FirstRunWelcome({
         </p>
         <div className="pe-welcome-mobile-signature" aria-hidden="true">
           <span className="pe-welcome-mobile-narrator">
-            <img
-              src="/brand/folioduet-narrator-tattoo-v3.png"
-              alt=""
-              width="800"
-              height="1200"
-            />
+            <FolioDuetAvatar />
           </span>
           <span>Designed for long-form reading</span>
         </div>
@@ -69,7 +65,7 @@ export function FirstRunWelcome({
       <div className="pe-welcome-visual pe-welcome-narrator" aria-hidden="true">
         <div className="pe-narrator-orbit" />
         <img
-          src="/brand/folioduet-narrator-tattoo-v3.png"
+          src="/brand/folioduet-narrator-tattoo-v4.png"
           alt=""
           width="800"
           height="1200"

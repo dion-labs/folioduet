@@ -1,6 +1,7 @@
 import { FileArchive, FileText, Plus, Search, Trash2 } from 'lucide-react';
 import { calculateProgress, formatRelativeDate } from '../documents';
 import type { LibraryDocument } from '../types';
+import { FolioDuetAvatar } from './FolioDuetAvatar';
 
 interface LibrarySidebarProps {
   documents: LibraryDocument[];
@@ -95,13 +96,7 @@ export function LibrarySidebar({
           );
         }) : (
           <div className="pe-library-empty">
-            <img
-              className="pe-library-mascot"
-              src="/brand/folioduet-mascot-v1.png"
-              alt=""
-              width="96"
-              height="96"
-            />
+            <FolioDuetAvatar className="pe-library-narrator" variant="reader" />
             <strong>{query ? 'No matching books' : 'Your shelf is ready'}</strong>
             <p>{query ? 'Try another title.' : 'Add a PDF to begin.'}</p>
             {!query && <button className="pe-text-button" onClick={onImport}>Import your first book</button>}

@@ -1,6 +1,6 @@
 import { LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
-import { FolioDuetMark } from './FolioDuetMark';
+import { FolioDuetAvatar } from './FolioDuetAvatar';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface LoginGateProps {
@@ -57,7 +57,7 @@ export function LoginGate({
         <div className="pe-login-card">
           <div className="pe-login-brand">
             <div className="pe-login-mark" aria-hidden="true">
-              <FolioDuetMark />
+              <FolioDuetAvatar />
             </div>
             <div className="pe-login-brand-text">
               <p className="pe-login-kicker">FOLIODUET</p>
