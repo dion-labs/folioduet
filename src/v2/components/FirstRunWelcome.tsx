@@ -48,6 +48,17 @@ export function FirstRunWelcome({
         <p className="pe-welcome-assurance">
           No account required. Your original PDF stays on this device.
         </p>
+        <div className="pe-welcome-mobile-signature" aria-hidden="true">
+          <span className="pe-welcome-mobile-narrator">
+            <img
+              src="/brand/folioduet-narrator-tattoo-v3.png"
+              alt=""
+              width="800"
+              height="1200"
+            />
+          </span>
+          <span>Designed for long-form reading</span>
+        </div>
         {onGoogleSignIn ? (
           <div className="pe-welcome-account">
             <span>Want your library and reading position on every device?</span>
@@ -58,7 +69,7 @@ export function FirstRunWelcome({
       <div className="pe-welcome-visual pe-welcome-narrator" aria-hidden="true">
         <div className="pe-narrator-orbit" />
         <img
-          src="/brand/folioduet-narrator-v1.png"
+          src="/brand/folioduet-narrator-tattoo-v3.png"
           alt=""
           width="800"
           height="1200"

@@ -55,7 +55,6 @@ import { HandoffResumeDialog } from './components/HandoffResumeDialog';
 import { ImportDialog } from './components/ImportDialog';
 import { LegalDialog } from './components/LegalDialog';
 import { LibrarySidebar } from './components/LibrarySidebar';
-import { LoginGate } from './components/LoginGate';
 import { ReaderWords } from './components/ReaderWords';
 import { SettingsPanel } from './components/SettingsPanel';
 import { parseLegalHash, type LegalDocId } from './legal';
@@ -155,6 +154,7 @@ import {
   debugLog,
   hasDebugQueryParam,
   isDebug,
+  readTestVolumeOverride,
   resetDebugFlagCache,
 } from './debug';
 import type { TtsStreamPosition } from './ttsStream';
@@ -300,6 +300,7 @@ export default function AppV2() {
     return legacySample ? TELL_TALE_LIBRARY_DOC_ID : active;
   });
   const pendingLibraryMergeRef = useRef<LibraryDocument[] | null>(null);
+  const pendingBootstrapActiveDocumentIdRef = useRef<string | null>(null);
   const lastAuthUidRef = useRef<string | null>(null);
   const activeDocument = documents.find((document) => document.id === activeDocumentId) ?? null;
 
@@ -329,6 +330,9 @@ export default function AppV2() {
   const [cacheResetBusy, setCacheResetBusy] = useState(false);
 
   const [preferences, setPreferences] = useState(loadPreferences);
+  const testVolumeOverride = useMemo(() => (
+    readTestVolumeOverride(window.location.search, import.meta.env.DEV)
+  ), []);
   const [deviceSyncStatus, setDeviceSyncStatus] = useState<DeviceSyncStatus>('idle');
   const [inworldServerStatus, setInworldServerStatus] = useState<TtsServerStatus>('checking');
   const [fishAudioServerStatus, setFishAudioServerStatus] = useState<TtsServerStatus>('checking');
@@ -338,7 +342,7 @@ export default function AppV2() {
   ));
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [query, setQuery] = useState('');
-  const [libraryOpen, setLibraryOpen] = useState(() => firebaseMode || !loadActiveDocumentId());
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [guestAccountExpanded, setGuestAccountExpanded] = useState(false);
   const [googleSignInBusy, setGoogleSignInBusy] = useState(false);
@@ -350,6 +354,8 @@ export default function AppV2() {
   const [demoPlaybackRequested, setDemoPlaybackRequested] = useState(false);
   const [pairBusy, setPairBusy] = useState(false);
   const [hydrateReady, setHydrateReady] = useState(false);
+  const hydrateReadyRef = useRef(hydrateReady);
+  hydrateReadyRef.current = hydrateReady;
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [handoffUrl, setHandoffUrl] = useState('');
   const [handoffError, setHandoffError] = useState<string | null>(null);
@@ -512,7 +518,7 @@ export default function AppV2() {
     );
     return {
       rate: preferences.playbackRate,
-      volume: preferences.volume,
+      volume: testVolumeOverride ?? preferences.volume,
       inworldEnabled: preferences.inworldEnabled || preferences.fishAudioEnabled,
       inworldEndpoint: '/api/tts/synthesize',
       inworldApiKey: ttsSecrets.inworldApiKey || undefined,
@@ -551,6 +557,7 @@ export default function AppV2() {
     preferences.fishAudioVoiceId,
     preferences.playbackRate,
     preferences.volume,
+    testVolumeOverride,
     ttsSecrets.fishAudioApiKey,
     ttsSecrets.inworldApiKey,
   ]);
@@ -637,22 +644,8 @@ export default function AppV2() {
       }
       if (cancelled) return;
 
-      // If nothing was restored, mint a guest once before listening.
-      if (!cancelled) {
-        try {
-          await ensureAnonymousSession();
-        } catch (error) {
-          console.error('[FolioDuet] Anonymous sign-in failed', error);
-          if (!cancelled) {
-            setAuthBootError(
-              error instanceof Error ? error.message : 'Anonymous sign-in failed.',
-            );
-            setAuthUser(null);
-          }
-        }
-      }
-      if (cancelled) return;
-
+      // Subscribe before minting a guest so the listener remains available if
+      // the first anonymous request fails and the visitor retries or uses Google.
       unsubscribe = subscribeAuth((user) => {
         if (!user) {
           void ensureAnonymousSession().catch((error) => {
@@ -672,20 +665,19 @@ export default function AppV2() {
         );
         lastAuthUidRef.current = user.uid;
 
-        // Guests / account switches must not paint another account's active book.
-        // Only clear persisted last-open when leaving a prior uid — first Google
-        // restore must keep the boot snapshot for hydrate.
-        if (user.isAnonymous || switchedAccount) {
+        // The Firebase-mode shell starts with an empty library, so the first auth
+        // result is already isolated. Only clear live state when the uid actually
+        // changes; otherwise a demo/import started during background auth would
+        // disappear as soon as the guest session arrives.
+        if (switchedAccount) {
           setActiveDocumentId(null);
-          if (switchedAccount) {
-            saveActiveDocumentId(null);
-            bootActiveDocumentIdRef.current = null;
-          }
+          saveActiveDocumentId(null);
+          bootActiveDocumentIdRef.current = null;
           setBookStream(null);
           setSource(null);
           setDocumentError(null);
           setLibraryOpen(true);
-          if (user.isAnonymous && switchedAccount) {
+          if (user.isAnonymous) {
             setDocuments([]);
             saveLibrary([]);
           }
@@ -746,7 +738,9 @@ export default function AppV2() {
 
         if (serverHasLibrary) {
           const pendingMerge = pendingLibraryMergeRef.current;
+          const pendingActiveDocumentId = pendingBootstrapActiveDocumentIdRef.current;
           pendingLibraryMergeRef.current = null;
+          pendingBootstrapActiveDocumentIdRef.current = null;
           // Merge cloud with local (and any pending import) so a poisoned cloud
           // page-0 row can't wipe a correct local last-page.
           const merged = normalizeLibraryDocuments(
@@ -770,15 +764,21 @@ export default function AppV2() {
           }
           // Guests land on home — never auto-open a book that may belong to another account's sync.
           if (isAnonymous) {
-            setActiveDocumentId(null);
-            setLibraryOpen(true);
+            const pendingActive = pendingActiveDocumentId
+              && merged.some((document) => document.id === pendingActiveDocumentId)
+              ? pendingActiveDocumentId
+              : null;
+            setActiveDocumentId(pendingActive);
+            setLibraryOpen(false);
             debugLog('hydrate', 'guest hydrate — no auto-open', {
               libraryCount: merged.length,
               cloudActive: bootstrap.activeDocumentId,
+              pendingActive,
             });
           } else {
             // Cloud → live local → boot snapshot → shelf top.
             const preferredActive = resolveActiveDocumentId(merged, [
+              pendingActiveDocumentId,
               bootstrap.activeDocumentId,
               loadActiveDocumentId(),
               bootActiveDocumentIdRef.current,
@@ -829,14 +829,18 @@ export default function AppV2() {
               } : null,
             });
           }
-        } else if (localHasLibrary && !isAnonymous) {
+        } else if ((localHasLibrary || pendingLibraryMergeRef.current?.length) && !isAnonymous) {
+          const pendingMerge = pendingLibraryMergeRef.current;
+          const pendingActiveDocumentId = pendingBootstrapActiveDocumentIdRef.current;
           const seedLibrary = normalizeLibraryDocuments(
-            pendingLibraryMergeRef.current
-              ? mergeLibraryDocuments(localLibrary, pendingLibraryMergeRef.current)
+            pendingMerge
+              ? mergeLibraryDocuments(localLibrary, pendingMerge)
               : localLibrary,
           );
           pendingLibraryMergeRef.current = null;
+          pendingBootstrapActiveDocumentIdRef.current = null;
           const seedActive = resolveActiveDocumentId(seedLibrary, [
+            pendingActiveDocumentId,
             loadActiveDocumentId(),
             bootActiveDocumentIdRef.current,
           ]);
@@ -892,14 +896,24 @@ export default function AppV2() {
             }
           }
         } else if (isAnonymous) {
-          // Fresh guest: ignore any leftover local library from a previous Google session.
+          // The initial Firebase-mode state is empty, so pending entries can only
+          // have been created by this page load while auth was running.
+          const pendingLibrary = normalizeLibraryDocuments(
+            pendingLibraryMergeRef.current ?? [],
+          );
+          const pendingActiveDocumentId = pendingBootstrapActiveDocumentIdRef.current;
           pendingLibraryMergeRef.current = null;
-          setDocuments([]);
-          setActiveDocumentId(null);
-          saveLibrary([]);
-          saveActiveDocumentId(null);
+          pendingBootstrapActiveDocumentIdRef.current = null;
+          const pendingActive = pendingActiveDocumentId
+            && pendingLibrary.some((document) => document.id === pendingActiveDocumentId)
+            ? pendingActiveDocumentId
+            : null;
+          setDocuments(pendingLibrary);
+          setActiveDocumentId(pendingActive);
+          saveLibrary(pendingLibrary);
+          saveActiveDocumentId(pendingActive);
           setLibraryOpen(false);
-          await putLibrary([], null);
+          await putLibrary(pendingLibrary, pendingActive);
         }
 
         const sponsorFish = Boolean(readFishSponsorKey());
@@ -1069,8 +1083,9 @@ export default function AppV2() {
       }
     }
 
-    // Wait for auth bootstrap so guests don't open a previous account's active book.
-    if (!hydrateReady || !activeDocument) return () => { active = false; };
+    // Firebase mode starts from an empty live library, so any document visible
+    // before hydration was opened during this page load and is safe to read now.
+    if (!activeDocument) return () => { active = false; };
 
     setDocumentLoading(true);
     setPdfExtractionStatus(null);
@@ -1110,7 +1125,7 @@ export default function AppV2() {
         || (activeDocument.isSample ? TELL_TALE_SAMPLE_ID : undefined);
 
       if (catalogSampleId) {
-        let catalogPages = usesFirebaseSync()
+        let catalogPages = firebaseMode
           ? await fetchCatalogSamplePages(catalogSampleId)
           : null;
         if (!active) return;
@@ -1247,7 +1262,6 @@ export default function AppV2() {
   }, [
     activeDocument?.id,
     documentCacheVersion,
-    hydrateReady,
     preferences.pdfExtractor,
     updateDocument,
   ]);
@@ -1442,7 +1456,9 @@ export default function AppV2() {
   ]);
 
   useEffect(() => {
-    if (!activeCatalogSampleId || !usesFirebaseSync()) return;
+    // Shared catalog reads are public; don't make demo playback wait for an
+    // anonymous Firebase session. Writes remain auth-gated elsewhere.
+    if (!activeCatalogSampleId || !firebaseMode) return;
     let cancelled = false;
     void fetchCatalogAudioClips(activeCatalogSampleId).then((clips) => {
       if (!cancelled && clips.length > 0) tts.primeAudioCache(clips);
@@ -1883,8 +1899,15 @@ export default function AppV2() {
         );
       }
 
-      setDocuments((current) => [...imported, ...current]);
+      setDocuments((current) => {
+        const next = normalizeLibraryDocuments([...imported, ...current]);
+        if (!hydrateReadyRef.current) pendingLibraryMergeRef.current = next;
+        return next;
+      });
       if (imported[0]) {
+        if (!hydrateReadyRef.current) {
+          pendingBootstrapActiveDocumentIdRef.current = imported[0].id;
+        }
         setActiveDocumentId(imported[0].id);
         setPageIndex(0);
         setSavedBlockIndex(0);
@@ -1934,7 +1957,14 @@ export default function AppV2() {
       });
       // Keep a local copy for offline; content sync uses the shared catalog.
       await saveSourceFile(document.id, file);
-      setDocuments((current) => normalizeLibraryDocuments([document, ...current]));
+      setDocuments((current) => {
+        const next = normalizeLibraryDocuments([document, ...current]);
+        if (!hydrateReadyRef.current) pendingLibraryMergeRef.current = next;
+        return next;
+      });
+      if (!hydrateReadyRef.current) {
+        pendingBootstrapActiveDocumentIdRef.current = document.id;
+      }
       setActiveDocumentId(document.id);
       setPageIndex(0);
       setSavedBlockIndex(0);
@@ -1953,7 +1983,7 @@ export default function AppV2() {
 
   useEffect(() => {
     const intent = acquisitionIntentRef.current;
-    if (!hydrateReady || !intent || acquisitionIntentHandledRef.current) return;
+    if (!intent || acquisitionIntentHandledRef.current) return;
     acquisitionIntentHandledRef.current = true;
 
     if (intent === 'demo') {
@@ -1965,7 +1995,7 @@ export default function AppV2() {
     setImportError(null);
     setImportOpen(true);
     void activationAnalytics.importOpen(activeDocument ? 'reader' : 'first_run');
-  }, [activeDocument, hydrateReady, importSampleStory]);
+  }, [activeDocument, importSampleStory]);
 
   const deleteDocument = useCallback(async (document: LibraryDocument) => {
     const where = usesFirebaseSync() ? 'your account' : 'the FolioDuet server';
@@ -2173,9 +2203,13 @@ export default function AppV2() {
       <div className="pe-page-body" ref={pageBodyRef}>
         {showPreparingSpinner ? (
           <div className="pe-reader-state">
-            <span className="pe-spin" aria-hidden="true">
-              <LoaderCircle size={25} />
-            </span>
+            <img
+              className="pe-reader-state-mascot"
+              src="/brand/folioduet-mascot-v1.png"
+              alt=""
+              width="88"
+              height="88"
+            />
             <strong>
               {documentLoading && activeDocument?.kind === 'pdf'
                 ? 'Extracting text from PDF…'
@@ -2239,6 +2273,7 @@ export default function AppV2() {
     if (googleSignInPendingRef.current) return;
     googleSignInPendingRef.current = true;
     pendingLibraryMergeRef.current = documents;
+    pendingBootstrapActiveDocumentIdRef.current = activeDocumentId;
     setAuthBootError(null);
     setGoogleSignInError(null);
     setGoogleSignInBusy(true);
@@ -2262,7 +2297,7 @@ export default function AppV2() {
       googleSignInPendingRef.current = false;
       setGoogleSignInBusy(false);
     }
-  }, [documents]);
+  }, [activeDocumentId, documents]);
 
   const handleRetryGuest = useCallback(async () => {
     setAuthBootError(null);
@@ -2280,6 +2315,11 @@ export default function AppV2() {
   }, []);
 
   const isAnonymousUser = Boolean(authUser?.isAnonymous);
+  const sessionInitializing = Boolean(
+    firebaseMode
+    && (authUser === undefined || (authUser && !hydrateReady)),
+  );
+  const sessionUnavailable = Boolean(firebaseMode && authUser === null);
   const guestAccountCtaOpen = guestAccountExpanded || googleSignInBusy || Boolean(googleSignInError);
   const guestAccountActionLabel = googleSignInBusy
     ? 'Connecting…'
@@ -2310,29 +2350,6 @@ export default function AppV2() {
     }
   }, [firebaseMode, guestAccountExpanded, isAnonymousUser]);
 
-  if (firebaseMode && authUser === undefined) {
-    return <LoginGate busy busyMessage="Restoring your session…" />;
-  }
-  if (firebaseMode && !authUser) {
-    return (
-      <LoginGate
-        error={googleSignInError || authBootError || 'Guest session unavailable.'}
-        onGoogleSignIn={handleGoogleSignIn}
-        onRetryGuest={handleRetryGuest}
-      />
-    );
-  }
-  // Don't mount the reader shell until account bootstrap finishes — otherwise a
-  // stale local active book can flash/crash before guest home is ready.
-  if (firebaseMode && !hydrateReady) {
-    return (
-      <LoginGate
-        busy
-        busyMessage={isAnonymousUser ? 'Starting a private guest session…' : 'Loading your library…'}
-      />
-    );
-  }
-
   return (
     <div
       className={[
@@ -2347,7 +2364,13 @@ export default function AppV2() {
     >
       <header className="pe-topbar" onPointerDown={onChromePointerDown}>
         <div className="pe-brand">
-          <button className="pe-icon-button pe-mobile-only" onClick={() => setLibraryOpen((open) => !open)} aria-label="Toggle library">
+          <button
+            className="pe-icon-button pe-mobile-only"
+            onClick={() => setLibraryOpen((open) => !open)}
+            aria-label="Toggle library"
+            aria-expanded={libraryOpen}
+            aria-controls="pe-library-drawer"
+          >
             <Menu size={19} />
           </button>
           <button
@@ -2373,12 +2396,14 @@ export default function AppV2() {
           </button>
         </div>
         <div className="pe-topbar-actions">
-          {firebaseMode && authUser ? (
-            <>
+          {firebaseMode ? (
+            authUser ? (
+              <>
               <button
                 type="button"
                 className={[
                   'pe-account-chip',
+                  sessionInitializing ? 'is-connecting' : '',
                   isAnonymousUser ? 'is-guest' : '',
                   isAnonymousUser && guestAccountCtaOpen ? 'is-expanded' : '',
                 ].filter(Boolean).join(' ')}
@@ -2417,13 +2442,21 @@ export default function AppV2() {
                   }
                   void handleGoogleSignIn();
                 }}
-                disabled={isAnonymousUser && googleSignInBusy}
-                aria-busy={isAnonymousUser ? googleSignInBusy : undefined}
+                disabled={sessionInitializing || (isAnonymousUser && googleSignInBusy)}
+                aria-busy={sessionInitializing || (isAnonymousUser && googleSignInBusy)}
                 aria-describedby={isAnonymousUser && googleSignInError ? 'pe-google-sign-in-error' : undefined}
                 aria-label={isAnonymousUser ? guestAccountActionLabel : 'Account and settings'}
-                title={isAnonymousUser ? `Guest account — ${guestAccountActionLabel}` : undefined}
+                title={sessionInitializing
+                  ? 'Connecting your private session…'
+                  : isAnonymousUser
+                    ? `Guest account — ${guestAccountActionLabel}`
+                    : undefined}
               >
-                {isAnonymousUser ? (
+                {sessionInitializing ? (
+                  <span className="pe-account-initials pe-account-status-icon" aria-hidden="true">
+                    <LoaderCircle size={15} className="pe-spin" />
+                  </span>
+                ) : isAnonymousUser ? (
                   <span className="pe-guest-account-icon" aria-hidden="true">
                     <span className="pe-account-initials">G</span>
                     <GoogleMark className="pe-guest-google-mark" />
@@ -2464,7 +2497,35 @@ export default function AppV2() {
                   </button>
                 </div>
               ) : null}
-            </>
+              </>
+            ) : (
+              <button
+                type="button"
+                className={[
+                  'pe-account-chip',
+                  'pe-session-status',
+                  sessionInitializing ? 'is-connecting' : 'is-offline',
+                ].join(' ')}
+                onClick={sessionUnavailable ? () => { void handleRetryGuest(); } : undefined}
+                disabled={sessionInitializing}
+                aria-busy={sessionInitializing}
+                aria-label={sessionInitializing
+                  ? 'Connecting private guest session'
+                  : 'Guest connection unavailable. Tap to retry.'}
+                title={sessionInitializing
+                  ? 'Connecting your private session…'
+                  : (authBootError || 'Guest connection unavailable — tap to retry')}
+              >
+                <span className="pe-account-initials pe-account-status-icon" aria-hidden="true">
+                  {sessionInitializing
+                    ? <LoaderCircle size={15} className="pe-spin" />
+                    : <RefreshCw size={14} />}
+                </span>
+                <span className="pe-account-label">
+                  {sessionInitializing ? 'Connecting' : 'Retry guest'}
+                </span>
+              </button>
+            )
           ) : null}
           <button className="pe-icon-button" onClick={() => setSettingsOpen(true)} aria-label="Open settings">
             <Settings size={18} />
@@ -2494,7 +2555,7 @@ export default function AppV2() {
             onClick={() => setLibraryOpen(false)}
           />
         ) : null}
-        <div className={`pe-library-wrap ${libraryOpen ? 'is-open' : ''}`}>
+        <div id="pe-library-drawer" className={`pe-library-wrap ${libraryOpen ? 'is-open' : ''}`}>
           <LibrarySidebar
             documents={documents}
             activeDocumentId={activeDocumentId}
@@ -2511,7 +2572,9 @@ export default function AppV2() {
             onDelete={deleteDocument}
             storageHint={
               firebaseMode
-                ? (isAnonymousUser ? 'Synced for this guest session' : 'Synced to your account')
+                ? authUser
+                  ? (isAnonymousUser ? 'Synced for this guest session' : 'Synced to your account')
+                  : 'Stored on this device'
                 : 'Stored on this device'
             }
           />
@@ -2868,7 +2931,7 @@ export default function AppV2() {
                   setImportOpen(true);
                   void activationAnalytics.importOpen('first_run');
                 }}
-                onGoogleSignIn={firebaseMode && isAnonymousUser
+                onGoogleSignIn={firebaseMode && (isAnonymousUser || sessionUnavailable)
                   ? () => { void handleGoogleSignIn(); }
                   : undefined}
               />
@@ -2953,7 +3016,7 @@ export default function AppV2() {
         }
         isAnonymous={isAnonymousUser}
         cloudSync={firebaseMode}
-        onSignOut={firebaseMode && !isAnonymousUser ? handleSignOut : undefined}
+        onSignOut={firebaseMode && authUser && !isAnonymousUser ? handleSignOut : undefined}
         onChange={setPreferences}
         onSaveSecrets={handleSaveSecrets}
         onClose={() => setSettingsOpen(false)}
@@ -2965,14 +3028,14 @@ export default function AppV2() {
         pageLabel={`page ${pageIndex + 1}`}
         requiresSignIn={Boolean(
           firebaseMode
-          && isAnonymousUser
+          && (!authUser || isAnonymousUser)
           && !activeDocument?.isSample
           && !isCatalogSampleDocumentId(activeDocument?.id ?? ''),
         )}
         catalogSample={Boolean(
           activeDocument?.isSample || isCatalogSampleDocumentId(activeDocument?.id ?? ''),
         )}
-        onSignIn={firebaseMode && isAnonymousUser ? () => { void handleGoogleSignIn(); } : undefined}
+        onSignIn={firebaseMode && (!authUser || isAnonymousUser) ? () => { void handleGoogleSignIn(); } : undefined}
         onClose={() => setHandoffOpen(false)}
       />
       <HandoffResumeDialog

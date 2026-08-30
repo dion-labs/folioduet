@@ -18,6 +18,7 @@
     "dev:server": "node server/index.mjs",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "test:boxie-rules": "npx --yes firebase-tools@15.28.2 emulators:exec --project demo-dionlabs-boxie --only firestore \"vitest run --config firebase-tests/vitest.config.ts\"",
     "preview": "vite preview",
     "start": "node server/index.mjs"
   },
@@ -33,6 +34,7 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/qrcode": "^1.5.6",

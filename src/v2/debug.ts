@@ -19,6 +19,21 @@ const ALL_SCOPES = ['resume', 'hydrate', 'sync', 'pack'] as const;
 
 export type DebugScope = (typeof ALL_SCOPES)[number] | 'all' | '*';
 
+/**
+ * Local browser-smoke-test audio override. `?testVolume=0` keeps real playback
+ * timing/events active while making automated and agent-driven checks silent.
+ * It is deliberately ignored outside Vite development builds.
+ */
+export function readTestVolumeOverride(search: string, isDevelopment: boolean): number | null {
+  if (!isDevelopment) return null;
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const raw = params.get('testVolume');
+  if (raw === null || raw.trim() === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(1, Math.max(0, parsed));
+}
+
 /** Debug-only controls require an explicit query param, never the sticky flag. */
 export function hasDebugQueryParam(search: string): boolean {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);

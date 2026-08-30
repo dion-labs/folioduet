@@ -6,7 +6,7 @@ This file is for coding agents (and humans) setting up **FolioDuet on a user’s
 
 FolioDuet is a React + Vite SPA: PDF/Markdown reading with word-aligned TTS, guest or Google auth, and per-user Firestore sync. Originals stay in IndexedDB on the import device; processed page markdown syncs under `pageecho/{uid}/…`.
 
-The canonical host is `folioduet.dionlabs.ai`; keep `pageecho.dionlabs.ai` attached so the Pages middleware can permanently redirect old links. The canonical repository is `github.com/dion-labs/folioduet`; GitHub redirects the former `dion-labs/pageecho` slug. The `pageecho` Firestore namespace, `pageecho-*` browser-storage keys, `pageecho-shell-*` service-worker caches, and `X-PageEcho-TTS-Cache` API header are legacy compatibility contracts; do not rename them without a separately designed migration.
+The canonical host is `folioduet.dionlabs.ai`; keep `pageecho.dionlabs.ai` attached so the Pages middleware can permanently redirect old links. The canonical repository is `github.com/dion-labs/folioduet`; GitHub redirects the former `dion-labs/pageecho` slug. The `pageecho` Firestore namespace, `pageecho-*` browser-storage keys, `pageecho-shell-*` service-worker caches, and `X-PageEcho-TTS-Cache` API header are legacy compatibility contracts; do not rename them without a separately designed migration. The shared production rules also contain Boxie's owner-only encrypted-vault namespace under `boxie/{uid}`; preserve and run its rules test whenever deploying this complete shared rules file.
 
 Production shape: **static `dist/` on Cloudflare Pages + Firebase**. The Node server under `server/` is optional for local TTS caching / single-user sync.
 
@@ -92,8 +92,11 @@ Details: ask for `RESEARCH/PAGEECHO_FIREBASE_DATA_MODEL.md` in the Dion Labs nes
 | `npm run dev:client` | SPA against Firebase |
 | `npm run dev` | SPA + local Node proxy |
 | `npm test` | Vitest |
+| `npm run test:boxie-rules` | Firestore emulator regression for the shared Boxie namespace |
 | `npm run build` | `dist/` for Pages |
 | `firebase deploy --only firestore:rules` | Rules (correct project!) |
+
+For local browser playback smoke tests, open the app with `?testVolume=0`. Audio playback and speech-synthesis timing/events remain active for verification, but the tab is silent. The override is ignored in production builds and does not change saved user preferences.
 
 ## Do not
 

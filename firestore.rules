@@ -35,6 +35,207 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // --- Boxie encrypted vault spike ---
+    // Mail content must already be encrypted by the device. These rules provide
+    // owner isolation, schema bounds, and stale-epoch rejection; they cannot inspect
+    // or recover ciphertext.
+    function isCurrentBoxieEpoch(uid, epoch) {
+      return existsAfter(/databases/$(database)/documents/boxie/$(uid))
+        && getAfter(/databases/$(database)/documents/boxie/$(uid)).data.epoch == epoch;
+    }
+
+    function validBoxieRoot(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'activeVaultId', 'epoch', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'activeVaultId', 'epoch', 'createdAt', 'updatedAt'
+        ])
+        && data.schemaVersion == 1
+        && data.activeVaultId is string
+        && data.activeVaultId.size() >= 16
+        && data.activeVaultId.size() <= 96
+        && data.epoch is int
+        && data.epoch >= 1
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validBoxieDevice(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'vaultId', 'epoch', 'name', 'publicKeyJwk',
+          'createdAt', 'lastSeenAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'vaultId', 'epoch', 'name', 'publicKeyJwk',
+          'createdAt', 'lastSeenAt'
+        ])
+        && data.schemaVersion == 1
+        && data.vaultId is string
+        && data.epoch is int
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 80
+        && data.publicKeyJwk is map
+        && data.createdAt is timestamp
+        && data.lastSeenAt is timestamp;
+    }
+
+    function validBoxieVault(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'epoch', 'keyVersion', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'epoch', 'keyVersion', 'status', 'createdAt'
+        ])
+        && data.schemaVersion == 1
+        && data.epoch is int
+        && data.keyVersion == 1
+        && data.status == 'active'
+        && data.createdAt is timestamp;
+    }
+
+    function validBoxieObject(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'epoch', 'algorithm', 'contentType', 'nonce',
+          'ciphertext', 'wrappedKeyNonce', 'wrappedKey', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'epoch', 'algorithm', 'contentType', 'nonce',
+          'ciphertext', 'wrappedKeyNonce', 'wrappedKey', 'createdAt'
+        ])
+        && data.schemaVersion == 1
+        && data.epoch is int
+        && data.algorithm == 'AES-256-GCM'
+        && data.contentType == 'application/vnd.boxie.synthetic+json'
+        && data.nonce is string
+        && data.nonce.size() <= 32
+        && data.ciphertext is string
+        && data.ciphertext.size() <= 700000
+        && data.wrappedKeyNonce is string
+        && data.wrappedKeyNonce.size() <= 32
+        && data.wrappedKey is string
+        && data.wrappedKey.size() <= 128
+        && data.createdAt is timestamp;
+    }
+
+    function validPendingBoxiePairing(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'vaultId', 'epoch', 'requestingDeviceId',
+          'requestingDeviceName', 'requestingPublicKeyJwk', 'safetyCode',
+          'expiresAt', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'vaultId', 'epoch', 'requestingDeviceId',
+          'requestingDeviceName', 'requestingPublicKeyJwk', 'safetyCode',
+          'expiresAt', 'status', 'createdAt'
+        ])
+        && data.schemaVersion == 1
+        && data.vaultId is string
+        && data.epoch is int
+        && data.requestingDeviceId is string
+        && data.requestingDeviceName is string
+        && data.requestingDeviceName.size() >= 1
+        && data.requestingDeviceName.size() <= 80
+        && data.requestingPublicKeyJwk is map
+        && data.safetyCode is string
+        && data.safetyCode.matches('^[0-9A-F]{4}-[0-9A-F]{4}$')
+        && data.expiresAt is timestamp
+        && data.expiresAt > request.time
+        && data.expiresAt <= request.time + duration.value(10, 'm')
+        && data.status == 'pending'
+        && data.createdAt is timestamp;
+    }
+
+    function validApprovedBoxiePairing(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'vaultId', 'epoch', 'requestingDeviceId',
+          'requestingDeviceName', 'requestingPublicKeyJwk', 'safetyCode',
+          'expiresAt', 'status', 'createdAt', 'approvingDeviceId',
+          'senderPublicKeyJwk', 'salt', 'nonce', 'ciphertext', 'approvedAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'vaultId', 'epoch', 'requestingDeviceId',
+          'requestingDeviceName', 'requestingPublicKeyJwk', 'safetyCode',
+          'expiresAt', 'status', 'createdAt', 'approvingDeviceId',
+          'senderPublicKeyJwk', 'salt', 'nonce', 'ciphertext', 'approvedAt'
+        ])
+        && data.schemaVersion == 1
+        && data.status == 'approved'
+        && data.approvingDeviceId is string
+        && data.senderPublicKeyJwk is map
+        && data.salt is string
+        && data.salt.size() <= 64
+        && data.nonce is string
+        && data.nonce.size() <= 32
+        && data.ciphertext is string
+        && data.ciphertext.size() <= 128
+        && data.approvedAt is timestamp;
+    }
+
+    match /boxie/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && validBoxieRoot(request.resource.data);
+      allow update: if isOwner(uid)
+        && validBoxieRoot(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['activeVaultId', 'epoch', 'updatedAt'])
+        && (
+          (
+            request.resource.data.epoch == resource.data.epoch
+            && request.resource.data.activeVaultId == resource.data.activeVaultId
+          ) || (
+            request.resource.data.epoch == resource.data.epoch + 1
+            && request.resource.data.activeVaultId != resource.data.activeVaultId
+          )
+        );
+      // Reset advances the root epoch; clients never delete it and reopen epoch 1.
+      allow delete: if false;
+
+      match /devices/{deviceId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && validBoxieDevice(request.resource.data)
+          && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
+        allow update: if isOwner(uid)
+          && validBoxieDevice(request.resource.data)
+          && isCurrentBoxieEpoch(uid, request.resource.data.epoch)
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['lastSeenAt']);
+      }
+
+      match /pairings/{pairingId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && validPendingBoxiePairing(request.resource.data)
+          && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
+        allow update: if isOwner(uid)
+          && resource.data.status == 'pending'
+          && request.time < resource.data.expiresAt
+          && isCurrentBoxieEpoch(uid, request.resource.data.epoch)
+          && validApprovedBoxiePairing(request.resource.data)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'approvingDeviceId', 'senderPublicKeyJwk', 'salt',
+            'nonce', 'ciphertext', 'approvedAt'
+          ]);
+      }
+
+      match /vaults/{vaultId} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && validBoxieVault(request.resource.data)
+          && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
+        allow update: if false;
+
+        match /objects/{objectId} {
+          allow read, delete: if isOwner(uid);
+          allow create, update: if isOwner(uid)
+            && validBoxieObject(request.resource.data)
+            && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
+        }
+      }
+    }
+
     // --- Legacy Dion Labs site (same project; do not break on deploy) ---
     // Observed clients: blog Signals + main landing (unauthenticated).
     // Tighten later; these match current public write patterns.

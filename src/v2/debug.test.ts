@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { hasDebugQueryParam, parseDebugFlagsFromSearch } from './debug';
+import { hasDebugQueryParam, parseDebugFlagsFromSearch, readTestVolumeOverride } from './debug';
+
+describe('readTestVolumeOverride', () => {
+  it('allows silent local playback tests without muting production links', () => {
+    expect(readTestVolumeOverride('?testVolume=0', true)).toBe(0);
+    expect(readTestVolumeOverride('?testVolume=0.35', true)).toBe(0.35);
+    expect(readTestVolumeOverride('?testVolume=0', false)).toBeNull();
+  });
+
+  it('ignores invalid values and clamps valid values to the audio range', () => {
+    expect(readTestVolumeOverride('?testVolume=loud', true)).toBeNull();
+    expect(readTestVolumeOverride('?testVolume=2', true)).toBe(1);
+    expect(readTestVolumeOverride('?testVolume=-1', true)).toBe(0);
+  });
+});
 
 describe('hasDebugQueryParam', () => {
   it('only enables debug controls for an explicit query parameter', () => {

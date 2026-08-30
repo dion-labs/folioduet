@@ -155,7 +155,9 @@ export async function uploadDocumentBlob(
   kind: 'source' | 'paired-pdf',
   file: File,
 ): Promise<void> {
-  if (usesFirebaseSync()) return;
+  // Firebase deployments intentionally keep originals device-local, including
+  // while anonymous auth is still connecting or unavailable.
+  if (isFirebaseConfigured()) return;
   const params = new URLSearchParams({ fileName: file.name });
   const response = await fetch(
     `/api/sync/documents/${encodeURIComponent(documentId)}/${kind}?${params}`,
@@ -175,7 +177,7 @@ export async function downloadDocumentBlob(
   kind: 'source' | 'paired-pdf',
   fileName: string,
 ): Promise<File | null> {
-  if (usesFirebaseSync()) return null;
+  if (isFirebaseConfigured()) return null;
   const response = await fetch(
     `/api/sync/documents/${encodeURIComponent(documentId)}/${kind}`,
   );
@@ -194,6 +196,8 @@ export async function deleteSyncedDocument(documentId: string): Promise<void> {
     await deleteFirebaseDocument(requireUid(), documentId);
     return;
   }
+  // No remote row exists when Firebase auth never became available.
+  if (isFirebaseConfigured()) return;
   await readJson(
     await fetch(`/api/sync/documents/${encodeURIComponent(documentId)}`, {
       method: 'DELETE',
