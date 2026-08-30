@@ -194,6 +194,11 @@ export function useViewportBookPages({
     }
 
     lastPackKeyRef.current = '';
+    // A resize can schedule another pack while the prior async measurement is
+    // still yielding. Only the newest run may commit, and only the first run
+    // should publish the quick word-based placeholder.
+    let latestRun = 0;
+    let hasPublishedPack = false;
 
     const runPack = () => {
       if (gen !== packGenRef.current || signal.cancelled) return;
@@ -204,12 +209,23 @@ export function useViewportBookPages({
       const packKey = `${stream.length}:${quantize(width)}:${quantize(budget)}:${fontScale.toFixed(2)}`;
       if (packKey === lastPackKeyRef.current) return;
       lastPackKeyRef.current = packKey;
+      const run = ++latestRun;
+      const isStale = () => (
+        gen !== packGenRef.current
+        || signal.cancelled
+        || run !== latestRun
+      );
 
       const fingerprint = streamFingerprint(stream);
 
       // 1) Instant provisional layout so the current page can paint.
-      const provisional = packStreamByWords(stream, DEFAULT_WORDS_PER_PAGE);
-      applyPack(provisional.pages, provisional.pageStarts, true);
+      // Keep the current measured layout during later resize repacks; repeatedly
+      // replacing it with the provisional count caused the visible 7 ↔ 8 loop.
+      if (!hasPublishedPack) {
+        const provisional = packStreamByWords(stream, DEFAULT_WORDS_PER_PAGE);
+        applyPack(provisional.pages, provisional.pageStarts, true);
+        hasPublishedPack = true;
+      }
 
       // 2) Validated per-device cache of a prior precise pack.
       if (cacheDocumentId) {
@@ -217,7 +233,9 @@ export function useViewportBookPages({
         if (cached) {
           const cachedPages = pagesFromStarts(stream, cached.pageStarts);
           if (cachedPages.length === cached.pageStarts.length) {
+            if (isStale()) return;
             applyPack(cachedPages, cached.pageStarts, true);
+            hasPublishedPack = true;
             setPacking(false);
             return;
           }
@@ -238,13 +256,13 @@ export function useViewportBookPages({
         const measurer = createBookStreamMeasurer({ width, fontScale });
         try {
           await yieldToMain();
-          if (gen !== packGenRef.current || signal.cancelled) return;
+          if (isStale()) return;
 
           const heights = await measurer.measureHeightsAsync(stream, {
             chunkSize: 6,
             signal,
           });
-          if (gen !== packGenRef.current || signal.cancelled) return;
+          if (isStale()) return;
           await yieldToMain();
 
           const packable = await expandStreamForBudgetAsync(
@@ -254,27 +272,28 @@ export function useViewportBookPages({
             heights,
             { chunkSize: 6, signal, yieldFn: yieldToMain },
           );
-          if (gen !== packGenRef.current || signal.cancelled) return;
+          if (isStale()) return;
           await yieldToMain();
 
           const packHeights = packable.length === stream.length
             ? heights
             : await measurer.measureHeightsAsync(packable, { chunkSize: 6, signal });
-          if (gen !== packGenRef.current || signal.cancelled) return;
+          if (isStale()) return;
           await yieldToMain();
 
           // Height-only pack: no measurePage peel (that was freezing the UI).
           const precise = packStreamByHeight(packable, packHeights, budget);
 
-          if (gen !== packGenRef.current || signal.cancelled) return;
+          if (isStale()) return;
 
           // Low-priority commit so in-flight page turns aren't blocked.
+          hasPublishedPack = true;
           startTransition(() => {
-            if (gen !== packGenRef.current || signal.cancelled) return;
+            if (isStale()) return;
             applyPack(precise.pages, precise.pageStarts, true);
           });
 
-          if (cacheDocumentId) {
+          if (cacheDocumentId && !isStale()) {
             saveViewportPackCache(
               cacheDocumentId,
               fingerprint,
@@ -287,7 +306,7 @@ export function useViewportBookPages({
           // Keep provisional word pack on unexpected measure failures.
         } finally {
           measurer.dispose();
-          if (gen === packGenRef.current) setPacking(false);
+          if (!isStale()) setPacking(false);
         }
       })();
     };

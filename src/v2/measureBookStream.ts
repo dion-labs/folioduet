@@ -28,9 +28,14 @@ function createMeasureHost(width: number, fontScale: number): { host: HTMLDivEle
   const host = document.createElement('div');
   host.className = 'pe-reading-page';
   host.style.cssText = [
-    'position:absolute',
-    'left:-10000px',
+    // Fixed + transformed keeps the measurement tree out of document flow and
+    // scroll overflow. An absolutely-positioned host could briefly toggle the
+    // viewport scrollbar while measuring, which re-triggered pagination.
+    'position:fixed',
+    'left:0',
     'top:0',
+    'transform:translate3d(-200vw,-200vh,0)',
+    'contain:layout style paint',
     `width:${width}px`,
     'visibility:hidden',
     'pointer-events:none',
