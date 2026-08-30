@@ -428,6 +428,11 @@
   object-fit: cover;
 }
 
+.pe-brand-mark img {
+  transform: scale(1.62);
+  transform-origin: 50% 34%;
+}
+
 .pe-brand-home > div,
 .pe-brand > div {
   display: flex;
