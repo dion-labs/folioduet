@@ -2991,6 +2991,8 @@ export default function AppV2() {
                     <button type="button" className="pe-text-link" onClick={() => openLegalDoc('privacy')}>
                       Privacy
                     </button>
+                    <span aria-hidden="true">·</span>
+                    <a className="pe-text-link" href="https://dionlabs.ai/privacy">Lab privacy</a>
                   </nav>
                 </div>
               </footer>
