@@ -104,3 +104,7 @@ For local browser playback smoke tests, open the app with `?testVolume=0`. Audio
 - Deploy the full Dion Labs `firestore.rules` file to an unrelated Firebase project without removing legacy blog/landing matches.
 - Expose the Node sync server on the public internet without auth — it is single-trust local tooling.
 - Claim the app is “created” on a user’s machine until Firebase rules + Auth domains are actually configured and a smoke import works.
+
+## Regression QA and deployment sign-off
+
+Use [docs/qa/README.md](docs/qa/README.md) for whole-app test procedures and [docs/qa/report-template.md](docs/qa/report-template.md) for evidence. Run `npm run qa:live` after deployment and after shared Firebase Auth configuration changes. Verify actual Google sign-in on the canonical host; a passing build or guest session does not prove Google sign-in works. Preserve every unrelated authorized domain when updating the shared Firebase project. Report unrun/blocked cases explicitly; never claim whole-app certification from unit tests alone.

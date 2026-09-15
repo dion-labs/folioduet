@@ -1,3 +1,4 @@
+import { normalizeExtractedMarkdownPages } from './documentNormalization';
 import * as pdfjsLib from 'pdfjs-dist';
 import { buildBookStream } from './documents';
 import type { BookStreamBlock } from './bookStream';
@@ -42,16 +43,12 @@ export function pdfTextItemsToLines(items: PdfTextItem[]): string[] {
         line
         && !/\s$/.test(line)
         && !/^[\s.,;:!?)\]}'"”’]/.test(str)
-        && !line.endsWith('-')
       ) {
         line += ' ';
       }
-      // Join hyphenated wraps: "responsibil-" + "ity" → "responsibility"
-      if (line.endsWith('-') && /^[a-zà-öø-ÿ]/.test(str)) {
-        line = `${line.slice(0, -1)}${str}`;
-      } else {
-        line += str;
-      }
+      // Preserve hyphens and fragment separation. The shared repair stage uses
+      // document-wide evidence instead of deleting possible compound hyphens.
+      line += str;
     }
     if (item.hasEOL) flushLine();
   }
@@ -72,7 +69,19 @@ export function pdfLinesToParagraphs(lines: string[]): string[] {
     buffer = [];
   };
 
+  // Reconstruct physical line wraps before paragraph heuristics. Keep the
+  // hyphen decision for common normalization, including uncertain compounds.
+  const logicalLines: string[] = [];
   for (const line of lines) {
+    const previous = logicalLines.at(-1);
+    if (previous?.endsWith('-') && /^\p{Ll}/u.test(line)) {
+      logicalLines[logicalLines.length - 1] = `${previous} ${line}`;
+    } else {
+      logicalLines.push(line);
+    }
+  }
+
+  for (const line of logicalLines) {
     const words = line.split(/\s+/).filter(Boolean).length;
     const titleLike = words <= 8 && line.length <= 72 && !/[.!?]$/.test(line);
 
@@ -135,7 +144,7 @@ export async function extractPdfMarkdown(
   if (extractor === 'anydoc') {
     try {
       const { extractPdfWithAnydoc } = await import('./anydocPdf');
-      const pages = await extractPdfWithAnydoc(file);
+      const pages = normalizeExtractedMarkdownPages(await extractPdfWithAnydoc(file));
       if (pages.length > 0) {
         return { pages, requested: extractor, used: 'anydoc', didFallback: false };
       }
@@ -144,7 +153,7 @@ export async function extractPdfMarkdown(
     }
   }
   return {
-    pages: await extractPdfMarkdownPagesWithPdfJs(file),
+    pages: normalizeExtractedMarkdownPages(await extractPdfMarkdownPagesWithPdfJs(file)),
     requested: extractor,
     used: 'pageecho',
     didFallback: extractor === 'anydoc',

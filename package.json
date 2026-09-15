@@ -20,7 +20,8 @@
     "test": "vitest run",
     "test:boxie-rules": "npx --yes firebase-tools@15.28.2 emulators:exec --project demo-dionlabs-boxie --only firestore \"vitest run --config firebase-tests/vitest.config.ts\"",
     "preview": "vite preview",
-    "start": "node server/index.mjs"
+    "start": "node server/index.mjs",
+    "qa:live": "node tools/qa/check-live.mjs"
   },
   "dependencies": {
     "@firecrawl/anydoc-wasm": "^0.1.7",

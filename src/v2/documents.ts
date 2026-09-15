@@ -1,3 +1,4 @@
+import { normalizeExtractedMarkdownPages } from './documentNormalization';
 import JSZip from 'jszip';
 import { parsePageMarkdown, type MarkdownBlock } from '../hooks/useTTS';
 import {
@@ -260,7 +261,7 @@ function isChapterBreak(block: MarkdownBlock): boolean {
   if (level === null || countWords(block.text) > 12) return false;
   if (level >= 5) return false;
   // Preserve conventional authored Markdown behavior while requiring stronger
-  // evidence for AnyDoc's typography-derived h4 headings. h5/h6 remain
+  // evidence for typography-derived h4 headings. h5/h6 remain
   // subordinate even when a printed page number resembles a chapter number.
   return level <= 3 || hasExplicitChapterSignal(block.text);
 }
@@ -293,7 +294,7 @@ function pushRenderedBlock(
 }
 
 /**
- * AnyDoc can emit a wrapped chapter title as several consecutive headings.
+ * Extractors can emit a wrapped chapter title as several consecutive headings.
  * Join continuation lines, then let pushStreamBlock discard an immediately
  * repeated extraction/header copy using a punctuation-insensitive key.
  */
@@ -383,7 +384,7 @@ function pushStreamBlock(stream: BookStreamBlock[], block: Omit<BookStreamBlock,
 export function buildBookStream(sourcePages: string[], documentName: string): BookStreamBlock[] {
   const stream: BookStreamBlock[] = [];
 
-  for (const sourcePage of sourcePages) {
+  for (const sourcePage of normalizeExtractedMarkdownPages(sourcePages)) {
     const prepared = prepareMarkdownPage(sourcePage, documentName);
     const hasHeadingChapter = prepared.renderedBlocks.some((block) => isChapterBreak(block));
     if (!hasHeadingChapter) {

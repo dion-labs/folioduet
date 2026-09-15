@@ -1,3 +1,4 @@
+import { normalizeExtractedMarkdownPages } from '../../src/v2/documentNormalization.ts';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
@@ -44,7 +45,7 @@ if (!inputOption || !outputOption) {
     const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf8'));
 
     initSync({ module: wasmBytes });
-    const markdown = toMarkdownBytes(inputBytes, 'pdf');
+    const markdown = normalizeExtractedMarkdownPages([toMarkdownBytes(inputBytes, 'pdf')]).join('\n');
 
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, markdown.endsWith('\n') ? markdown : `${markdown}\n`, 'utf8');

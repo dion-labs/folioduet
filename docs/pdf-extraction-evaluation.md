@@ -20,7 +20,11 @@ Do not commit:
 - Document titles, filenames, hashes, or absolute paths from a private evaluation session.
 - Rules keyed to a particular title, author, page, or sentence.
 
+See [Processing strategies](processing-strategies.md) for the common pipeline and engine-specific boundaries.
+
 ## Create a local baseline
+
+Use Node 22.18+ so the helper can import the app's shared TypeScript normalization module.
 
 The extraction helper intentionally refuses to write outside `local-evals/`:
 

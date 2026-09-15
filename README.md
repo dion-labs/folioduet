@@ -87,3 +87,7 @@ the canonical host to Firebase Auth authorized domains.
 ## License
 
 [MIT](./LICENSE) © Dion Labs
+
+## Regression QA
+
+The [whole-app QA guide](docs/qa/README.md) contains fixture recipes, browser/device coverage, step-by-step scenario oracles, deployment gates, and an evidence-report template. Run `npm run qa:live` for read-only checks of the official production site and its deployed Firebase authorization configuration. Live Google sign-in, audio, sync and device acceptance remain separate checks.

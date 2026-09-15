@@ -94,3 +94,54 @@ describe('AnyDoc PDF extraction', () => {
     });
   });
 });
+
+describe('shared strategies across extraction routes', () => {
+  it.each(['pageecho', 'anydoc', 'fallback'] as const)(
+    'repairs wraps conservatively on the %s route', async (route) => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const sourcePages = [
+        'Architecture supports long-term planning.',
+        'Good archi- tecture supports long- term planning.',
+      ];
+      mocks.extractPdfWithAnydoc.mockReset();
+      if (route === 'fallback') {
+        mocks.extractPdfWithAnydoc.mockRejectedValue(new Error('conversion failed'));
+      } else {
+        mocks.extractPdfWithAnydoc.mockResolvedValue(sourcePages);
+      }
+      mocks.getDocument.mockReturnValue({ promise: Promise.resolve({
+        numPages: 2,
+        getPage: async (number: number) => ({ getTextContent: async () => ({
+          items: number === 1 ? [{ str: sourcePages[0], hasEOL: true }] : [
+            { str: 'Good archi-', hasEOL: true },
+            { str: 'tecture supports long-' },
+            { str: 'term planning.', hasEOL: true },
+          ],
+        }) }),
+        destroy: vi.fn(),
+      }) });
+      const result = await extractPdfMarkdown(
+        new File(['pdf'], 'synthetic.pdf'), route === 'pageecho' ? 'pageecho' : 'anydoc',
+      );
+      expect(result.pages).toEqual([
+        `${sourcePages[0]}\n`,
+        'Good architecture supports long-term planning.\n',
+      ]);
+      expect(result.didFallback).toBe(route === 'fallback');
+      vi.restoreAllMocks();
+    },
+  );
+
+  it('falls back when AnyDoc returns only whitespace', async () => {
+    mocks.extractPdfWithAnydoc.mockResolvedValue([' \r\n ']);
+    mocks.getDocument.mockReturnValue({ promise: Promise.resolve({
+      numPages: 1,
+      getPage: async () => ({ getTextContent: async () => ({
+        items: [{ str: 'Fallback body.', hasEOL: true }],
+      }) }),
+      destroy: vi.fn(),
+    }) });
+    await expect(extractPdfMarkdown(new File(['pdf'], 'synthetic.pdf'), 'anydoc'))
+      .resolves.toMatchObject({ pages: ['Fallback body.\n'], didFallback: true });
+  });
+});

@@ -17,12 +17,12 @@ describe('pdfTextItemsToLines', () => {
     expect(lines).toEqual(['The Mythical Man-Month', 'Frederick Brooks']);
   });
 
-  it('rejoins hyphenated wraps', () => {
+  it('preserves wrap evidence for shared document repair', () => {
     const lines = pdfTextItemsToLines([
       { str: 'responsibil-' },
       { str: 'ity', hasEOL: true },
     ]);
-    expect(lines).toEqual(['responsibility']);
+    expect(lines).toEqual(['responsibil- ity']);
   });
 
   it('skips empty pages', () => {

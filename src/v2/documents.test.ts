@@ -313,3 +313,18 @@ describe('calculateProgress', () => {
     expect(calculateProgress(99, 10, 9999)).toBe(100);
   });
 });
+
+describe('shared strategies for archived and synced Markdown', () => {
+  it('normalizes source text before producing rendering and speech runs', () => {
+    const stream = buildBookStream([
+      'Architecture supports long-term planning.',
+      'Good archi- tecture supports long- term planning.',
+    ], 'Synthetic document');
+    expect(stream.map((block) => block.text)).toEqual([
+      'Architecture supports long-term planning.',
+      'Good architecture supports long-term planning.',
+    ]);
+    expect(stream[1].inlineRuns?.map((run) => run.text).join('')).toBe(stream[1].text);
+    expect(stream[1].markdown).toBe(stream[1].text);
+  });
+});
