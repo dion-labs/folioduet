@@ -18,10 +18,11 @@
     "dev:server": "node server/index.mjs",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "test:boxie-rules": "npx --yes firebase-tools@15.28.2 emulators:exec --project demo-dionlabs-boxie --only firestore \"vitest run --config firebase-tests/vitest.config.ts\"",
+    "test:boxie-rules": "npm run test:rules",
     "preview": "vite preview",
     "start": "node server/index.mjs",
-    "qa:live": "node tools/qa/check-live.mjs"
+    "qa:live": "node tools/qa/check-live.mjs",
+    "test:rules": "npx --yes firebase-tools@15.28.2 emulators:exec --project demo-dionlabs-boxie --only firestore \"vitest run --config firebase-tests/vitest.config.ts\""
   },
   "dependencies": {
     "@firecrawl/anydoc-wasm": "^0.1.7",
@@ -45,6 +46,6 @@
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   }
 }

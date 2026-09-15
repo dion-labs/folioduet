@@ -1,0 +1,22 @@
+name: Regression QA
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  automated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:rules
+      - run: npm audit --audit-level=moderate

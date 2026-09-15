@@ -38,7 +38,7 @@ Use a dedicated QA profile/account and invented disposable documents. Do not cle
 
 ### Fixture catalogue
 
-Create generic fixtures locally under ignored `local-evals/qa/<run>/`. Include a short manifest of intended content and expected structure. Do not reuse private book excerpts. The real-engine automated test `src/v2/pdfProcessors.integration.test.ts` contains an invented, deterministic PDF builder.
+Create generic fixtures locally under ignored `local-evals/qa/<run>/`. Include a short manifest of intended content and expected structure. Do not reuse private book excerpts. The real-engine automated test `src/v2/pdfProcessors.integration.test.ts` uses the invented, deterministic PDF builder in `tools/qa/pdf-fixtures.ts`.
 
 | Fixture | Contents / purpose |
 | --- | --- |
@@ -72,7 +72,7 @@ npm run qa:live
 If shared Firestore rules change, also run:
 
 ```sh
-npm run test:boxie-rules
+npm run test:rules
 ```
 
 This needs a working Java runtime and Firebase emulator. The default `npm test` excludes that separate emulator suite. A missing Java runtime is BLOCKED. Add/run owner-versus-other-user emulator assertions for affected FolioDuet/catalog/feedback collections too; Boxie's tests alone do not certify FolioDuet permissions. Preserve all other shared namespaces. Use a clean intended rules file, not unrelated working-tree edits.
@@ -220,3 +220,10 @@ For every row, perform the stated action and compare the result with the oracle.
 ## 6. Keeping this suite useful
 
 When a regression is found, add its minimal synthetic regression where possible and a scenario at the layer that exposed it. An external config regression needs an external config/live-action check; a pure component test cannot catch it. Update fixture oracles when intended product behavior changes and explain the change. Keep exact execution evidence out of the reusable descriptions so an old PASS cannot be mistaken for a current run.
+
+## Follow-up regression coverage (2026-09-15)
+
+- Rules execution requires Java 21 or newer. The supplied `github-actions.example.yml` installs Java 21 explicitly; activation is blocked by the current GitHub credential lacking workflow scope. `npm run test:rules` covers feedback, Boxie compatibility, FolioDuet owner CRUD, independent same-owner contexts, anonymous access, cross-user denial, and scoped deletion. These emulator checks do not certify live account linking or end-to-end encrypted sync.
+- Audio lifecycle tests reject outstanding play promises after stop or replacement, and deliver both media-error and rejected-promise callbacks. Expect no stale fallback or interruption of the replacement player and exactly one fallback for a current failure. Browser audibility and device interruptions remain separate gates.
+- Both real PDF engines process 200 ordered synthetic pages with blank boundaries. PDF.js rejects zero-byte/malformed files and recovers on the next valid import. Empty AnyDoc input reports OCR required. Scanned-image OCR and performance comparisons remain separate cases.
+- `qa:live` requires static readable privacy/terms pages and HTTP 404 for unknown routes and missing assets, in addition to the shared OAuth-domain guard. Verify `/v2` still redirects to the reader and root handoff queries still load it.

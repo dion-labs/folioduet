@@ -54,6 +54,16 @@ export async function checkLive({
     const text = await (await get(`${origin}${path}`)).text();
     assert(text.includes('FolioDuet') && /<h1\b/i.test(text), `Public landing page loads: ${path}`);
   }
+  for (const path of ['/privacy/', '/terms/']) {
+    const text = await (await get(`${origin}${path}`)).text();
+    assert(/<h1\b/i.test(text) && text.includes('Updated') && !text.includes('<div id="root"'),
+      `Legal route serves readable static content: ${path}`);
+  }
+  for (const path of ['/qa-missing-route-20260915', '/assets/qa-missing-20260915.js']) {
+    const response = await fetchImpl(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
+    assert(response.status === 404 && (await response.text()).includes('Page not found'),
+      `Unknown route returns a real 404: ${path}`);
+  }
   const manifest = await (await get(`${origin}/manifest.webmanifest`)).json();
   assert(Boolean(manifest.name && manifest.icons?.length), 'Install manifest is valid and has icons');
   for (const icon of manifest.icons) {

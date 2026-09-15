@@ -1,2 +1,3 @@
-# Cloudflare Pages — SPA fallback for deep links / refresh.
-/*    /index.html   200
+# Only the historical app entry point redirects. Unknown paths use 404.html.
+/v2     /   301
+/v2/    /   301

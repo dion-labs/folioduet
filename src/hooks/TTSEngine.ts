@@ -353,9 +353,13 @@ export class TTSEngine {
     this.currentTokensWithTimestamps = [];
 
     if (this.audioPlayer) {
-      this.audioPlayer.pause();
-      this.audioPlayer.src = "";
+      const player = this.audioPlayer;
       this.audioPlayer = null;
+      player.onended = null;
+      player.onerror = null;
+      player.onloadedmetadata = null;
+      player.pause();
+      player.src = "";
     }
     if (this.audioObjectUrl) {
       URL.revokeObjectURL(this.audioObjectUrl);
@@ -412,7 +416,7 @@ export class TTSEngine {
 
     try {
       const chunk = chunks[chunkIndex];
-      const blob = this.base64ToBlob(cached.audioContent, 'audio/mp3');
+      const blob = this.base64ToBlob(cached.audioContent, 'audio/mpeg');
       const audioUrl = URL.createObjectURL(blob);
       this.audioObjectUrl = audioUrl;
 
@@ -529,10 +533,12 @@ export class TTSEngine {
 
       const player = new Audio(audioUrl);
       this.audioPlayer = player;
+      const isCurrentPlayer = () => requestId === this.playRequestId && this.audioPlayer === player;
       player.volume = this.config.volume;
       player.playbackRate = this.config.rate;
 
       player.onloadedmetadata = () => {
+        if (!isCurrentPlayer()) return;
         if (this.currentTokensWithTimestamps.length > 0 && fromWordIndex > 0) {
           const token = this.currentTokensWithTimestamps.find(
             (candidate) => candidate.elementIndex === fromWordIndex,
@@ -544,6 +550,7 @@ export class TTSEngine {
       };
 
       player.onended = () => {
+        if (!isCurrentPlayer()) return;
         this.stopInworldTracking();
         URL.revokeObjectURL(audioUrl);
         if (this.audioObjectUrl === audioUrl) this.audioObjectUrl = null;
@@ -570,32 +577,32 @@ export class TTSEngine {
         }
       };
 
-      player.onerror = (e) => {
-        console.error("🐝 [TTSEngine] Inworld audio player error:", e);
-        URL.revokeObjectURL(audioUrl);
-        if (this.audioObjectUrl === audioUrl) this.audioObjectUrl = null;
-        this.stopInworldTracking();
-        if (this.audioPlayer === player) {
-          this.audioPlayer = null;
-          // Drop the bad entry so the next play refetches neural audio.
-          this.inworldCache.delete(this.getInworldCacheKey(chunk.text));
-          console.warn("🐝 [TTSEngine] Falling back to native SpeechSynthesis due to audio element error.");
-          this.playNativeFallback(fromWordIndex);
-        }
+      const fallback = (error: unknown) => {
+        if (!isCurrentPlayer()) return;
+        // pause()/stop()/replacement can reject a pending play promise. That is
+        // cancellation, not a provider failure, and must not restart speech.
+        if (error instanceof Error && error.name === 'AbortError' && player.paused) return;
+        const detail = error instanceof Error ? error : player.error;
+        console.warn('[TTSEngine] Neural playback failed; using system speech.', {
+          provider: this.config.provider,
+          name: detail && 'name' in detail ? detail.name : 'MediaError',
+          code: player.error?.code,
+        });
+        this.inworldCache.delete(this.getInworldCacheKey(chunk.text));
+        // cleanup detaches the player before any second error/play rejection.
+        this.playNativeFallback(fromWordIndex);
       };
+      player.onerror = () => fallback(player.error);
 
       const playPromise = player.play();
       if (playPromise !== undefined) {
         playPromise.then(() => {
-          this.startInworldTracking();
-        }).catch(err => {
-          console.error("🐝 [TTSEngine] play() failed:", err);
-          console.warn("🐝 [TTSEngine] Falling back to native SpeechSynthesis due to play rejection.");
-          this.playNativeFallback(fromWordIndex);
-        });
+          if (isCurrentPlayer() && !player.paused) this.startInworldTracking();
+        }).catch(fallback);
       }
     } catch (err) {
-      console.error("🐝 [TTSEngine] Failed to load cached Inworld audio:", err);
+      if (requestId !== this.playRequestId) return;
+      console.error('[TTSEngine] Failed to load neural audio:', err);
       this.playNativeFallback(fromWordIndex);
     }
   }
@@ -934,11 +941,21 @@ export class TTSEngine {
    */
   resume() {
     if (this.hasInworldRoute() && this.audioPlayer) {
-      this.audioPlayer.play().then(() => {
+      const player = this.audioPlayer;
+      const requestId = this.playRequestId;
+      player.play().then(() => {
+        if (this.audioPlayer !== player || requestId !== this.playRequestId || player.paused) return;
         this.startInworldTracking();
         if (this.config.onResume) this.config.onResume();
       }).catch(err => {
-        console.error("🐝 [TTSEngine] Inworld resume play failed:", err);
+        if (this.audioPlayer !== player || requestId !== this.playRequestId) return;
+        if (err instanceof Error && err.name === 'AbortError' && player.paused) return;
+        console.warn('[TTSEngine] Neural resume failed; using system speech.', {
+          provider: this.config.provider, name: err instanceof Error ? err.name : 'MediaError',
+          code: player.error?.code,
+        });
+        this.playNativeFallback(Math.max(0, this.activeWordIndex));
+        if (this.config.onResume) this.config.onResume();
       });
       return;
     }
@@ -963,9 +980,13 @@ export class TTSEngine {
     this.stopInworldTracking();
 
     if (this.audioPlayer) {
-      this.audioPlayer.pause();
-      this.audioPlayer.src = "";
+      const player = this.audioPlayer;
       this.audioPlayer = null;
+      player.onended = null;
+      player.onerror = null;
+      player.onloadedmetadata = null;
+      player.pause();
+      player.src = "";
     }
 
     this.cleanup();

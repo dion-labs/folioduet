@@ -2,6 +2,7 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
+import { renderLegalPage, renderNotFoundPage } from './src/v2/staticPages'
 
 const v2Redirect: Plugin = {
   name: 'pageecho-v2-redirect',
@@ -41,6 +42,15 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       v2Redirect,
+      {
+        name: 'folioduet-static-routes',
+        generateBundle() {
+          for (const id of ['privacy', 'terms'] as const) {
+            this.emitFile({ type: 'asset', fileName: `${id}/index.html`, source: renderLegalPage(id) });
+          }
+          this.emitFile({ type: 'asset', fileName: '404.html', source: renderNotFoundPage() });
+        },
+      },
       react(),
       tailwindcss(),
     ],
