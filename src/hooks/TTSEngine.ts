@@ -228,6 +228,7 @@ export class TTSEngine {
   private audioObjectUrl: string | null = null;
   private inworldCache: Map<string, InworldAudio> = new Map();
   private inworldRequests: Map<string, Promise<InworldAudio>> = new Map();
+  private prefetchRetryAfter: Map<string, number> = new Map();
   private playRequestId = 0;
   private trackingFrameId: any = null;
   private currentTokensWithTimestamps: {
@@ -790,7 +791,15 @@ export class TTSEngine {
    */
   private prefetchInworld(text: string) {
     if (!text) return;
-    void this.fetchInworldAudio(text).catch(err => {
+    const key = this.getInworldCacheKey(text);
+    if ((this.prefetchRetryAfter.get(key) ?? 0) > Date.now() || this.inworldRequests.has(key)) return;
+    this.prefetchRetryAfter.delete(key);
+    void this.fetchInworldAudio(text).then(() => {
+      this.prefetchRetryAfter.delete(key);
+    }).catch(err => {
+      // Reflow can request the same look-ahead repeatedly while a provider is
+      // unavailable. Back off speculative work; foreground Play still retries.
+      this.prefetchRetryAfter.set(key, Date.now() + 30_000);
       console.warn("🐝 [TTSEngine] Background pre-fetch failed:", err);
     });
   }

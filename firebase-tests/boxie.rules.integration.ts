@@ -56,6 +56,49 @@ function objectData(
   };
 }
 
+function canonicalManifestData(options: {
+  epoch?: number;
+  state?: "uploading" | "complete";
+  storage?: "inline" | "chunked";
+} = {}) {
+  const epoch = options.epoch ?? 1;
+  const storage = options.storage ?? "inline";
+  const state = options.state ?? "complete";
+  const base = {
+    schemaVersion: 1,
+    epoch,
+    recordKind: "message",
+    accountScopeId: "obj_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    algorithm: "AES-256-GCM",
+    contentType: "application/vnd.boxie.canonical-message+json",
+    nonce: "AAECAwQFBgcICQoL",
+    wrappedKeyNonce: "CwwNDg8QERITFBUW",
+    wrappedKey: "opaque-wrapped-data-key",
+    replicaRevision: "AAECAwQFBgcICQoL.CwwNDg8QERITFBUW",
+    storage,
+    state,
+    ciphertextSize: storage == "inline" ? 26 : 450001,
+    chunkCount: storage == "inline" ? 0 : 2,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+  return storage == "inline"
+    ? { ...base, ciphertext: "opaque-ciphertext-with-tag" }
+    : base;
+}
+
+function canonicalChunkData(index: number, ciphertext: string) {
+  return {
+    schemaVersion: 1,
+    epoch: 1,
+    replicaRevision: "AAECAwQFBgcICQoL.CwwNDg8QERITFBUW",
+    index,
+    ciphertext,
+    ciphertextSize: ciphertext.length,
+    updatedAt: serverTimestamp()
+  };
+}
+
 function deviceData(epoch = 1, vaultId = "vault_1234567890123456") {
   return {
     schemaVersion: 1,
@@ -145,6 +188,73 @@ describe("shared Dion Labs Firestore rules: Boxie", () => {
     }));
   });
 
+  it("allows only bounded complete inline canonical ciphertext", async () => {
+    const alice = environment.authenticatedContext("alice").firestore();
+    const bob = environment.authenticatedContext("bob").firestore();
+    await assertSucceeds(setDoc(doc(alice, "boxie", "alice"), rootData()));
+    await assertSucceeds(setDoc(
+      doc(alice, "boxie", "alice", "vaults", "vault_1234567890123456"),
+      vaultData()
+    ));
+    const canonical = doc(
+      alice,
+      "boxie",
+      "alice",
+      "vaults",
+      "vault_1234567890123456",
+      "canonical",
+      "obj_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    );
+    await assertSucceeds(setDoc(canonical, canonicalManifestData()));
+    await assertSucceeds(getDoc(canonical));
+    await assertFails(getDoc(doc(
+      bob,
+      "boxie",
+      "alice",
+      "vaults",
+      "vault_1234567890123456",
+      "canonical",
+      "obj_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    )));
+    await assertFails(setDoc(canonical, {
+      ...canonicalManifestData(),
+      subject: "plaintext is forbidden"
+    }));
+  });
+
+  it("accepts resumable chunks only under a matching uploading manifest", async () => {
+    const alice = environment.authenticatedContext("alice").firestore();
+    await assertSucceeds(setDoc(doc(alice, "boxie", "alice"), rootData()));
+    await assertSucceeds(setDoc(
+      doc(alice, "boxie", "alice", "vaults", "vault_1234567890123456"),
+      vaultData()
+    ));
+    const canonical = doc(
+      alice,
+      "boxie",
+      "alice",
+      "vaults",
+      "vault_1234567890123456",
+      "canonical",
+      "obj_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    );
+    await assertSucceeds(setDoc(canonical, canonicalManifestData({
+      storage: "chunked",
+      state: "uploading"
+    })));
+    const chunk = doc(canonical, "chunks", "0000");
+    await assertSucceeds(setDoc(chunk, canonicalChunkData(0, "opaque-first-chunk")));
+    await assertFails(setDoc(doc(canonical, "chunks", "0001"), {
+      ...canonicalChunkData(1, "opaque-second-chunk"),
+      body: "plaintext is forbidden"
+    }));
+    await assertSucceeds(setDoc(canonical, canonicalManifestData({
+      storage: "chunked",
+      state: "complete"
+    })));
+    await assertFails(setDoc(chunk, canonicalChunkData(0, "cannot-change-after-finalize")));
+  });
+
   it("denies another user and an unauthenticated client", async () => {
     const alice = environment.authenticatedContext("alice").firestore();
     const bob = environment.authenticatedContext("bob").firestore();
@@ -216,6 +326,18 @@ describe("shared Dion Labs Firestore rules: Boxie", () => {
         "current"
       ),
       objectData(2)
+    ));
+    await assertFails(setDoc(
+      doc(
+        alice,
+        "boxie",
+        "alice",
+        "vaults",
+        "vault_abcdefghijklmnop",
+        "canonical",
+        "obj_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+      ),
+      canonicalManifestData({ epoch: 1 })
     ));
   });
 

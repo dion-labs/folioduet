@@ -9,6 +9,22 @@ import {
 import { buildChapterIndex } from './chapters';
 
 describe('prepareMarkdownPage', () => {
+  it('keeps prose that contains the filename or is contained within it', () => {
+    for (const [name, prose] of [
+      ['first', 'A synthetic first book. FirstSentinel The explorer returns home.'],
+      ['A Quiet Place', 'Quiet'],
+      ['The River', 'The river keeps flowing.'],
+      ['hello', 'Hello!'],
+      ['Never Again', 'Never again.'],
+      ['The River', 'The River'],
+    ]) {
+      const result = prepareMarkdownPage(prose, name);
+      expect(result.renderedBlocks.map((block) => block.text)).toEqual([prose]);
+      expect(result.speakableBlocks).toEqual([prose]);
+      expect(buildBookStream([prose], name).some((block) => block.text === prose)).toBe(true);
+    }
+  });
+
   it('hides page furniture from reading and speech', () => {
     const page = [
       '# The Mythical Man-Month',

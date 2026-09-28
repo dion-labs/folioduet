@@ -1,0 +1,252 @@
+{
+  "checkedAt": "2026-09-22T07:59:37.482Z",
+  "engine": "Headless Chrome/Chromium 153.0.8010.48",
+  "node": "v22.22.3",
+  "origin": "http://127.0.0.1:5198",
+  "cases": [
+    {
+      "id": "PREF-01",
+      "volume": "0",
+      "passed": true
+    },
+    {
+      "id": "TTS-05-bounded-prefetch",
+      "requestsDuringIdle": 0,
+      "passed": true
+    },
+    {
+      "id": "READ-05",
+      "unique": 168,
+      "total": 168,
+      "clipped": [],
+      "passed": true
+    },
+    {
+      "id": "READ-10",
+      "starts": [
+        0,
+        5,
+        10,
+        15,
+        20,
+        25,
+        30,
+        35,
+        40,
+        45,
+        50,
+        55
+      ],
+      "passed": true
+    },
+    {
+      "id": "READ-06-reflow",
+      "passed": true
+    },
+    {
+      "id": "READ-10-content",
+      "unique": 168,
+      "total": 168,
+      "clipped": [],
+      "passed": true
+    },
+    {
+      "id": "READ-04",
+      "width": 390,
+      "preparing": 0,
+      "overflow": false,
+      "passed": true
+    },
+    {
+      "id": "READ-04-content",
+      "unique": 168,
+      "total": 168,
+      "clipped": [],
+      "passed": true
+    },
+    {
+      "id": "HAND-05",
+      "requestedPage": 3,
+      "actualPage": 3,
+      "passed": true
+    },
+    {
+      "id": "HAND-01-QR-copy-stub",
+      "passed": true
+    },
+    {
+      "id": "TTS-04-provider-failure-stub",
+      "utterances": 1,
+      "passed": true
+    },
+    {
+      "id": "TTS-05-post-pause-navigation",
+      "requestsDuringWindow": 0,
+      "durationMs": 1200,
+      "passed": true
+    },
+    {
+      "id": "PREF-01-reload",
+      "volume": "0",
+      "passed": true
+    },
+    {
+      "id": "TTS-muted-stub",
+      "utterances": 1,
+      "passed": true
+    },
+    {
+      "id": "TTS-pause-stub",
+      "passed": true
+    },
+    {
+      "id": "IMP-07-browser",
+      "passed": true
+    },
+    {
+      "id": "HAND-stored-confirm",
+      "acceptedPage": 3,
+      "passed": true
+    },
+    {
+      "id": "READ-06-legacy-corruption",
+      "legacyPage": 24,
+      "passed": true
+    },
+    {
+      "id": "READ-13-finalized-content",
+      "unique": 168,
+      "total": 168,
+      "clipped": [],
+      "passed": true
+    },
+    {
+      "id": "BROWSER-errors",
+      "pageErrors": [],
+      "renderErrors": [],
+      "passed": true
+    },
+    {
+      "id": "READ-14-tall-first",
+      "unique": 450,
+      "total": 450,
+      "clipped": [],
+      "passed": true
+    },
+    {
+      "id": "READ-14-cache-identity",
+      "passed": true
+    },
+    {
+      "id": "READ-14-tall-reload",
+      "unique": 450,
+      "total": 450,
+      "clipped": [],
+      "passed": true
+    },
+    {
+      "id": "READ-14-console",
+      "errors": [],
+      "passed": true
+    },
+    {
+      "id": "HAND-07-preserve-provisional-target",
+      "passed": true
+    },
+    {
+      "id": "HAND-07-final-target-identity",
+      "requestedPage": 3,
+      "actualPage": 3,
+      "passed": true
+    },
+    {
+      "id": "IMP-11-partial-batch",
+      "retained": 1,
+      "passed": true
+    },
+    {
+      "id": "IMP-11-retry-only-failed-file",
+      "total": 2,
+      "passed": true
+    },
+    {
+      "id": "LIB-01-search",
+      "passed": true
+    },
+    {
+      "id": "LIB-01-empty-search",
+      "passed": true
+    },
+    {
+      "id": "LIB-02-reopen",
+      "passed": true
+    },
+    {
+      "id": "READ-15-title-substring",
+      "passed": true
+    },
+    {
+      "id": "UI-03-keyboard-open",
+      "passed": true
+    },
+    {
+      "id": "LIB-03-cancel-delete",
+      "passed": true
+    },
+    {
+      "id": "LIB-03-delete-active",
+      "retained": 1,
+      "passed": true
+    },
+    {
+      "id": "LIB-03-preserve-other-source",
+      "passed": true
+    },
+    {
+      "id": "LIB-03-delete-reload",
+      "passed": true
+    },
+    {
+      "id": "IMP-08-same-name-new-content",
+      "passed": true
+    },
+    {
+      "id": "IMP-08-distinct-originals",
+      "books": 3,
+      "originalCopies": 2,
+      "differentCopies": 1,
+      "passed": true
+    },
+    {
+      "id": "READ-15-exact-prose-hello",
+      "passed": true
+    },
+    {
+      "id": "READ-15-exact-prose-Never Again",
+      "passed": true
+    },
+    {
+      "id": "STORE-01",
+      "passed": true
+    },
+    {
+      "id": "STORE-02",
+      "passed": true
+    },
+    {
+      "id": "BROWSER-all-contexts",
+      "errors": [],
+      "passed": true
+    }
+  ],
+  "externalRequestsBlocked": 10,
+  "serviceRequestsStubbed": 80,
+  "serviceRoutes": {
+    "GET /api/sync/bootstrap": 26,
+    "PUT /api/sync/documents/document-fixture/source": 10,
+    "POST /api/tts/synthesize": 29,
+    "PUT /api/sync/library": 13,
+    "DELETE /api/sync/documents/document-fixture": 1
+  },
+  "scope": "Synthetic local UI only; no real accounts, providers, audible output or physical device acceptance."
+}

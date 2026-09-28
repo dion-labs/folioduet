@@ -1,5 +1,4 @@
 import {
-  startTransition,
   useCallback,
   useEffect,
   useRef,
@@ -22,6 +21,7 @@ import {
   measurePageBodyContentWidth,
 } from './measureBookStream';
 import {
+  clearViewportPackCache,
   loadViewportPackCache,
   pagesFromStarts,
   saveViewportPackCache,
@@ -51,7 +51,7 @@ type Options = {
    */
   pageAnchorRef?: MutableRefObject<PackPageAnchor | null>;
   onPageCount: (totalPages: number) => void;
-  onRestorePage: (pageIndex: number, localBlockIndex: number, wordIndex: number) => void;
+  onRestorePage: (pageIndex: number, localBlockIndex: number, wordIndex: number, finalized?: boolean) => void;
 };
 
 function quantize(value: number, step = 8): number {
@@ -97,6 +97,9 @@ export function useViewportBookPages({
   const [pages, setPages] = useState<BookStreamBlock[][]>([]);
   const [pageStarts, setPageStarts] = useState<number[]>([]);
   const [ready, setReady] = useState(false);
+  const [finalizedPack, setFinalizedPack] = useState<{
+    stream: BookStreamBlock[]; documentId: string | null | undefined;
+  } | null>(null);
   /** True while the precise height pack is still measuring / packing. */
   const [packing, setPacking] = useState(false);
   const packTimerRef = useRef<number | null>(null);
@@ -115,6 +118,7 @@ export function useViewportBookPages({
     nextPages: BookStreamBlock[][],
     nextStarts: number[],
     markReady: boolean,
+    finalized = false,
   ) => {
     let pagesOut = nextPages;
     let startsOut = nextStarts;
@@ -134,6 +138,7 @@ export function useViewportBookPages({
       pagesOut.map((page) => page.length),
       anchorRef.current,
       pageAnchor,
+      finalized,
     );
     // Keep the page anchor + stream untouched until a pack actually contains
     // that page — otherwise a 1-page stub / short word-pack poisons resume.
@@ -165,6 +170,7 @@ export function useViewportBookPages({
       restored.pageIndex,
       restored.localBlockIndex,
       restored.wordIndex,
+      finalized,
     );
   }, [anchorRef, pageAnchorRef]);
 
@@ -173,6 +179,7 @@ export function useViewportBookPages({
     cancelSignalRef.current = { cancelled: false };
     const signal = cancelSignalRef.current;
     const gen = ++packGenRef.current;
+    setFinalizedPack(null);
 
     if (!enabled || !stream) {
       lastPackKeyRef.current = '';
@@ -199,6 +206,7 @@ export function useViewportBookPages({
     // should publish the quick word-based placeholder.
     let latestRun = 0;
     let hasPublishedPack = false;
+    const fingerprint = streamFingerprint(stream);
 
     const runPack = () => {
       if (gen !== packGenRef.current || signal.cancelled) return;
@@ -210,13 +218,12 @@ export function useViewportBookPages({
       if (packKey === lastPackKeyRef.current) return;
       lastPackKeyRef.current = packKey;
       const run = ++latestRun;
+      setFinalizedPack(null);
       const isStale = () => (
         gen !== packGenRef.current
         || signal.cancelled
         || run !== latestRun
       );
-
-      const fingerprint = streamFingerprint(stream);
 
       // 1) Instant provisional layout so the current page can paint.
       // Keep the current measured layout during later resize repacks; repeatedly
@@ -229,12 +236,13 @@ export function useViewportBookPages({
 
       // 2) Validated per-device cache of a prior precise pack.
       if (cacheDocumentId) {
-        const cached = loadViewportPackCache(cacheDocumentId, fingerprint, packKey);
+        const cached = loadViewportPackCache(cacheDocumentId, fingerprint, packKey, stream.length);
         if (cached) {
           const cachedPages = pagesFromStarts(stream, cached.pageStarts);
           if (cachedPages.length === cached.pageStarts.length) {
             if (isStale()) return;
-            applyPack(cachedPages, cached.pageStarts, true);
+            applyPack(cachedPages, cached.pageStarts, true, true);
+            setFinalizedPack({ stream, documentId: cacheDocumentId });
             hasPublishedPack = true;
             setPacking(false);
             return;
@@ -286,23 +294,28 @@ export function useViewportBookPages({
 
           if (isStale()) return;
 
-          // Low-priority commit so in-flight page turns aren't blocked.
+          // Measurements already yield between chunks. Publish the completed
+          // pack with its ready state in one priority lane; a delayed transition
+          // can otherwise be overwritten by a peel of the provisional layout.
           hasPublishedPack = true;
-          startTransition(() => {
-            if (isStale()) return;
-            applyPack(precise.pages, precise.pageStarts, true);
-          });
+          applyPack(precise.pages, precise.pageStarts, true, true);
+          setFinalizedPack({ stream, documentId: cacheDocumentId });
 
           if (cacheDocumentId && !isStale()) {
-            saveViewportPackCache(
-              cacheDocumentId,
-              fingerprint,
-              packKey,
-              precise.pageStarts,
-            );
+            // Cache boundaries index the original stream, not viewport-specific
+            // fragments of tall paragraphs. Reconstructing split boundaries
+            // against unsplit blocks can hide most of a paragraph after reload.
+            if (packable.length === stream.length && packable.every((block, index) => block === stream[index])) {
+              saveViewportPackCache(cacheDocumentId, fingerprint, packKey, precise.pageStarts);
+            } else {
+              clearViewportPackCache(cacheDocumentId);
+            }
           }
         } catch (error) {
           if (error instanceof DOMException && error.name === 'AbortError') return;
+          debugLog('pack', 'measurement failed; retaining provisional layout', {
+            message: error instanceof Error ? error.message : String(error),
+          });
           // Keep provisional word pack on unexpected measure failures.
         } finally {
           measurer.dispose();
@@ -347,29 +360,32 @@ export function useViewportBookPages({
   ]);
 
   const peelOverflowFromPage = useCallback((pageIndex: number, removeCount = 1) => {
-    setPages((current) => {
-      if (pageIndex < 0 || pageIndex >= current.length) return current;
-      const page = current[pageIndex];
-      const count = Math.min(Math.max(1, removeCount), Math.max(0, page.length - 1));
-      if (count <= 0) return current;
+    if (pageIndex < 0 || pageIndex >= pages.length) return;
+    const page = pages[pageIndex];
+    const count = Math.min(Math.max(1, removeCount), Math.max(0, page.length - 1));
+    if (count <= 0) return;
 
-      const next = current.map((entry) => [...entry]);
-      const moved = next[pageIndex].splice(next[pageIndex].length - count, count);
-      if (moved.length === 0) return current;
-      if (next[pageIndex + 1]) next[pageIndex + 1] = [...moved, ...next[pageIndex + 1]];
-      else next.push(moved);
+    const next = pages.map((entry) => [...entry]);
+    const moved = next[pageIndex].splice(next[pageIndex].length - count, count);
+    if (moved.length === 0) return;
+    if (next[pageIndex + 1]) next[pageIndex + 1] = [...moved, ...next[pageIndex + 1]];
+    else next.push(moved);
 
-      let cursor = 0;
-      const starts = next.map((entry) => {
-        const at = cursor;
-        cursor += entry.length;
-        return at;
-      });
-      setPageStarts(starts);
-      onPageCountRef.current(next.length);
-      return next;
+    let cursor = 0;
+    const starts = next.map((entry) => {
+      const at = cursor;
+      cursor += entry.length;
+      return at;
     });
-  }, []);
+    // Do not call other setters from inside a setPages updater: React can
+    // replay that updater while rebasing a transition, causing a render loop.
+    setPages(next);
+    setPageStarts(starts);
+    onPageCountRef.current(next.length);
+  }, [pages]);
 
-  return { pages, pageStarts, ready, packing, peelOverflowFromPage };
+  const finalized = finalizedPack !== null
+    && finalizedPack.stream === stream
+    && finalizedPack.documentId === cacheDocumentId;
+  return { pages, pageStarts, ready, finalized, packing, peelOverflowFromPage };
 }

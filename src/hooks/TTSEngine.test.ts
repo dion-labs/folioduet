@@ -300,3 +300,34 @@ describe('TTSEngine preloading', () => {
     });
   });
 });
+
+
+describe('failed prefetch recovery', () => {
+  it('backs off repeated background failures, but allows expiry and explicit play', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = vi.fn().mockRejectedValue(new Error('synthetic provider unavailable'));
+    vi.stubGlobal('fetch', fetchMock);
+    const engine = new TTSEngine({
+      inworldEnabled: true, inworldEndpoint: '/api/tts/synthesize', provider: 'fish-audio',
+    });
+    try {
+      engine.preloadBlocks(['retry fixture']);
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+      for (let i = 0; i < 20; i += 1) engine.preloadBlocks(['retry fixture']);
+      await Promise.resolve();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      clock.mockReturnValue(130_001);
+      engine.preloadBlocks(['retry fixture']);
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(2));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      engine.setBlock(0, 'retry fixture');
+      engine.play(0);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    } finally {
+      engine.stop();
+      clock.mockRestore(); warn.mockRestore(); error.mockRestore();
+    }
+  });
+});

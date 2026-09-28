@@ -93,6 +93,10 @@ The evaluation CLI needs Node 22.18+ for its direct TypeScript import. On older 
 
 Paths without a leading directory in this table are under `src/v2/`. Re-discover the test inventory after changes. Optional private-file tests may skip; explicitly report them and use the committed synthetic real-engine test for reproducible engine coverage.
 
+See [risk priorities and case-to-automation mapping](risk-map.md) for execution order and the manual remainder of each automated area.
+
+[Isolated headless recovery checks](browser-recovery.md) provide repeatable local UI coverage with synthetic fixtures and blocked network writes. They complement, rather than replace, the account/device gates below.
+
 ## 4. Scenario catalogue
 
 For every row, perform the stated action and compare the result with the oracle. “No error” alone is not a sufficient oracle. `GATE` identifies mandatory live checks for every deployment; other cases run for full certification and when their subsystem changes.
@@ -227,3 +231,5 @@ When a regression is found, add its minimal synthetic regression where possible 
 - Audio lifecycle tests reject outstanding play promises after stop or replacement, and deliver both media-error and rejected-promise callbacks. Expect no stale fallback or interruption of the replacement player and exactly one fallback for a current failure. Browser audibility and device interruptions remain separate gates.
 - Both real PDF engines process 200 ordered synthetic pages with blank boundaries. PDF.js rejects zero-byte/malformed files and recovers on the next valid import. Empty AnyDoc input reports OCR required. Scanned-image OCR and performance comparisons remain separate cases.
 - `qa:live` requires static readable privacy/terms pages and HTTP 404 for unknown routes and missing assets, in addition to the shared OAuth-domain guard. Verify `/v2` still redirects to the reader and root handoff queries still load it.
+
+Local cold-offline shell automation: see [the isolated offline runner](browser-offline.md) and `npm run qa:offline`. It verifies a Firebase-disabled production artifact with HTTP cache cleared and its owned server stopped; physical PWA/account/book acceptance remains separate.

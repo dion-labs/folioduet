@@ -63,14 +63,20 @@ export function LibrarySidebar({
             <article
               key={document.id}
               className={`pe-book-card ${isActive ? 'is-active' : ''}`}
-              onClick={() => onSelect(document)}
             >
               <div className={`pe-cover pe-cover-${document.kind === 'pdf' ? 'blue' : 'coral'}`}>
                 {document.kind === 'pdf' ? <FileText size={20} /> : <FileArchive size={20} />}
                 <span>{document.kind === 'pdf' ? 'PDF' : 'MD'}</span>
               </div>
               <div className="pe-book-details">
-                <h3>{document.name}</h3>
+                <h3>
+                  <button
+                    type="button"
+                    className="pe-book-open"
+                    aria-label={`Open ${document.name}`}
+                    onClick={() => onSelect(document)}
+                  >{document.name}</button>
+                </h3>
                 <p>
                   Page {document.currentPageIndex + 1} of {document.totalPages}
                   <span aria-hidden="true"> · </span>

@@ -67,6 +67,8 @@ import {
   loadPendingHandoff,
   readHandoffFromLocation,
   resolveHandoffStreamIndex,
+  getHandoffGlobalWordIndex,
+  resolveHandoffGlobalWordIndex,
   savePendingHandoff,
   type HandoffTarget,
 } from './handoff';
@@ -324,6 +326,8 @@ export default function AppV2() {
   /** Live reading-page count for TTS auto-advance (viewport pack can lead library totalPages). */
   const [readerPageCount, setReaderPageCount] = useState(() => Math.max(1, activeDocument?.totalPages ?? 1));
   const [bookStream, setBookStream] = useState<BookStreamBlock[] | null>(null);
+  const loadedStreamDocumentIdRef = useRef<string | null>(null);
+  const renderedViewportPageRef = useRef<BookStreamBlock[] | null>(null);
   const [source, setSource] = useState<File | string | null>(null);
   const [pairedPdf, setPairedPdf] = useState<File | null>(null);
   const [documentLoading, setDocumentLoading] = useState(false);
@@ -333,6 +337,16 @@ export default function AppV2() {
   const [cacheResetBusy, setCacheResetBusy] = useState(false);
 
   const [preferences, setPreferences] = useState(loadPreferences);
+  const [localSaveFailures, setLocalSaveFailures] = useState<string[]>([]);
+  const localSaveFailuresRef = useRef<string[]>([]);
+  const recordLocalSave = useCallback((area: string, saved: boolean) => {
+    const current = localSaveFailuresRef.current;
+    const failed = current.includes(area);
+    if (saved === !failed) return;
+    const next = saved ? current.filter((item) => item !== area) : [...current, area];
+    localSaveFailuresRef.current = next;
+    setLocalSaveFailures(next);
+  }, []);
   const testVolumeOverride = useMemo(() => (
     readTestVolumeOverride(window.location.search, import.meta.env.DEV)
   ), []);
@@ -577,19 +591,19 @@ export default function AppV2() {
   }, []);
 
   useEffect(() => {
-    saveLibrary(documents);
-  }, [documents]);
+    recordLocalSave('library', saveLibrary(documents));
+  }, [documents, recordLocalSave]);
 
   useEffect(() => {
     // Firebase boots with activeDocumentId=null until hydrate — don't wipe the
     // last-open id from localStorage before we can use it as a restore fallback.
     if (firebaseMode && !hydrateReady) return;
-    saveActiveDocumentId(activeDocumentId);
-  }, [activeDocumentId, hydrateReady]);
+    recordLocalSave('position', saveActiveDocumentId(activeDocumentId));
+  }, [activeDocumentId, hydrateReady, recordLocalSave]);
 
   useEffect(() => {
-    savePreferences(preferences);
-  }, [preferences]);
+    recordLocalSave('preferences', savePreferences(preferences));
+  }, [preferences, recordLocalSave]);
 
   useEffect(() => {
     if (!preferences.fishAudioEnabled) return;
@@ -678,6 +692,7 @@ export default function AppV2() {
           saveActiveDocumentId(null);
           bootActiveDocumentIdRef.current = null;
           setBookStream(null);
+          loadedStreamDocumentIdRef.current = null;
           setSource(null);
           setDocumentError(null);
           setLibraryOpen(true);
@@ -1014,6 +1029,7 @@ export default function AppV2() {
     let active = true;
     setDocumentError(null);
     setBookStream(null);
+    loadedStreamDocumentIdRef.current = null;
     setPairedPdf(null);
     setSource(null);
     setPageContent({ pageIndex: -1, blocks: [] });
@@ -1048,9 +1064,9 @@ export default function AppV2() {
         const savedBlock = Math.max(0, activeDocument.activeBlockIndex ?? 0);
         // Prefer page when stream is missing OR impossibly behind saved page.
         const preferPage = shouldPreferPageResume(savedPage, activeDocument.activeStreamIndex);
-        // Always keep a page anchor when we have a real saved page — resolvePackRestore
-        // uses it if stream maps behind that page (poison), else prefers stream (reflow).
-        pageAnchorRef.current = savedPage > 0
+        // Valid stream positions survive reflow even when the new pack has fewer
+        // pages. Retain a legacy page fallback only for missing/poisoned streams.
+        pageAnchorRef.current = preferPage && savedPage > 0
           ? { pageIndex: savedPage, blockIndex: savedBlock, wordIndex }
           : null;
         if (preferPage) {
@@ -1257,7 +1273,10 @@ export default function AppV2() {
         setDocumentError(error instanceof Error ? error.message : 'The book could not be opened.');
       }
     }).finally(() => {
-      if (active) setDocumentLoading(false);
+      if (active) {
+        loadedStreamDocumentIdRef.current = activeDocument.id;
+        setDocumentLoading(false);
+      }
     });
 
     return () => {
@@ -1281,6 +1300,7 @@ export default function AppV2() {
     nextPage: number,
     localBlockIndex: number,
     wordIndex: number,
+    finalized = false,
   ) => {
     const savedPage = activeDocument
       ? Math.max(0, activeDocument.currentPageIndex ?? 0)
@@ -1294,9 +1314,9 @@ export default function AppV2() {
       needsStreamHeal: needsStreamHealRef.current,
       pageAnchorRemaining: pageAnchorRef.current,
     });
-    // Never snap the UI behind a trusted saved page — that was the wipe loop:
-    // restore to page 1 → queueProgress → cloud poisoned to page 1.
-    if (nextPage < savedPage) {
+    // While healing a missing/poisoned stream, retain the saved page until it
+    // can be resolved. Valid stream positions may move to earlier pages on reflow.
+    if (needsStreamHealRef.current && nextPage < savedPage && !finalized) {
       debugLog('resume', 'reject regressive restore', {
         nextPage,
         savedPage,
@@ -1319,7 +1339,7 @@ export default function AppV2() {
     if (needsStreamHealRef.current && activeDocumentId) {
       const streamIndex = streamAnchorRef.current.streamIndex;
       // Never persist a title-page "heal" — that was wiping good cloud progress.
-      if (nextPage <= 0 || streamIndex <= 0) {
+      if (!finalized && (nextPage <= 0 || streamIndex <= 0)) {
         debugLog('resume', 'skip stream heal (title/stub)', { nextPage, streamIndex });
         return;
       }
@@ -1341,6 +1361,7 @@ export default function AppV2() {
     pages: viewportPages,
     pageStarts,
     ready: viewportReady,
+    finalized: viewportFinalized,
     packing: viewportPacking,
     peelOverflowFromPage,
   } = useViewportBookPages({
@@ -1570,6 +1591,7 @@ export default function AppV2() {
     const nextPageIndex = clampPage(pageIndex, viewportPages.length || 1);
     const page = viewportPages[nextPageIndex] ?? [];
     const blocks = streamPageToMarkdownBlocks(page);
+    renderedViewportPageRef.current = page;
     setMarkdownBlocks(blocks);
     setPageContent({
       pageIndex: nextPageIndex,
@@ -1587,6 +1609,10 @@ export default function AppV2() {
       || (viewportBook && !viewportReady)
       || pageContent.pageIndex !== pageIndex;
     if (!viewportBook || !viewportReady || preparing || viewportPacking) return;
+    const page = viewportPages[pageIndex] ?? [];
+    // A new pack can precede its rendered Markdown by one commit. Measuring
+    // the old DOM against the new blocks repeatedly peels already-fitting text.
+    if (renderedViewportPageRef.current !== page) return;
     const body = pageBodyRef.current;
     const prose = body?.querySelector('.pe-prose') as HTMLElement | null;
     if (!body || !prose) return;
@@ -1597,7 +1623,6 @@ export default function AppV2() {
     if (available < 80) return;
     if (prose.scrollHeight <= available + 2) return;
 
-    const page = viewportPages[pageIndex] ?? [];
     if (page.length <= 1) return;
 
     // Walk from the end until the remaining stack fits the body band.
@@ -1694,16 +1719,17 @@ export default function AppV2() {
     if (!document) return false;
     tts.stop();
 
-    // Stream index is stable across devices; page/block are derived for this viewport.
-    const streamIndex = resolveHandoffStreamIndex(target, pageStartsRef.current);
+    const globalPosition = target.globalWordIndex !== undefined
+      ? resolveHandoffGlobalWordIndex(viewportPages, target.globalWordIndex) : null;
+    const streamIndex = globalPosition?.streamIndex ?? resolveHandoffStreamIndex(target, pageStartsRef.current);
     const starts = pageStartsRef.current;
     const packedPages = starts.length > 0 ? starts.length : Math.max(1, document.totalPages);
-    const nextPage = starts.length > 0
+    const nextPage = globalPosition?.pageIndex ?? (starts.length > 0
       ? findPageForStreamIndex(starts, streamIndex)
-      : clampPage(target.pageIndex, packedPages);
+      : clampPage(target.pageIndex, packedPages));
     const pageStart = starts[nextPage] ?? 0;
-    const localBlock = Math.max(0, streamIndex - pageStart);
-    const wordIndex = Math.max(0, target.wordIndex);
+    const localBlock = globalPosition?.blockIndex ?? Math.max(0, streamIndex - pageStart);
+    const wordIndex = globalPosition?.wordIndex ?? Math.max(0, target.wordIndex);
 
     streamAnchorRef.current = { streamIndex, wordIndex };
     streamAnchorDocIdRef.current = document.id;
@@ -1728,7 +1754,7 @@ export default function AppV2() {
     clearPendingHandoff();
     clearHandoffFromUrl();
     return true;
-  }, [documents, persistDocumentProgress, tts.stop]);
+  }, [documents, persistDocumentProgress, tts.stop, viewportPages]);
 
   const dismissPendingHandoff = useCallback(() => {
     pendingHandoffRef.current = null;
@@ -1786,8 +1812,15 @@ export default function AppV2() {
 
     setHandoffError(null);
 
-    // Fresh URL open → jump straight to the page (signed-in or guest sample).
+    // Fresh URL open (or explicitly accepted stored handoff): load the target
+    // before resolving legacy page/block anchors against its viewport.
     if (handoffArrivalRef.current === 'url') {
+      if (activeDocumentId !== target.documentId) {
+        setActiveDocumentId(target.documentId);
+        return;
+      }
+      if (loadedStreamDocumentIdRef.current !== target.documentId
+        || documentLoading || !bookStream || !viewportFinalized || pageStarts.length === 0) return;
       applyHandoffTarget(target);
       return;
     }
@@ -1797,7 +1830,8 @@ export default function AppV2() {
       handoffResumeShownRef.current = true;
       setHandoffResume(target);
     }
-  }, [applyHandoffTarget, authUser, documents, hydrateReady]);
+  }, [applyHandoffTarget, authUser, documents, hydrateReady, activeDocumentId,
+    documentLoading, bookStream, viewportFinalized, pageStarts, handoffResume]);
 
   const openLegalDoc = useCallback((docId: LegalDocId) => {
     setLegalDoc(docId);
@@ -1843,6 +1877,8 @@ export default function AppV2() {
       blockIndex: localBlock,
       wordIndex: localWord,
       streamIndex,
+      ...(viewportFinalized && !documentLoading && loadedStreamDocumentIdRef.current === activeDocument.id
+        ? { globalWordIndex: getHandoffGlobalWordIndex(viewportPages, streamIndex, localWord) } : {}),
     };
     streamAnchorRef.current = { streamIndex, wordIndex: localWord };
     persistDocumentProgress(activeDocument.id, {
@@ -1864,6 +1900,9 @@ export default function AppV2() {
     tts.activeStreamIndex,
     tts.activeWordIndex,
     tts.isPlaying,
+    viewportFinalized,
+    viewportPages,
+    documentLoading,
   ]);
 
   const importFiles = useCallback(async (files: File[]) => {
@@ -1903,22 +1942,6 @@ export default function AppV2() {
         );
       }
 
-      setDocuments((current) => {
-        const next = normalizeLibraryDocuments([...imported, ...current]);
-        if (!hydrateReadyRef.current) pendingLibraryMergeRef.current = next;
-        return next;
-      });
-      if (imported[0]) {
-        if (!hydrateReadyRef.current) {
-          pendingBootstrapActiveDocumentIdRef.current = imported[0].id;
-        }
-        setActiveDocumentId(imported[0].id);
-        setPageIndex(0);
-        setSavedBlockIndex(0);
-        setSavedWordIndex(0);
-        setReaderView('reading');
-        setLibraryOpen(false);
-      }
       setImportOpen(false);
     } catch (error) {
       const unsupportedType = error instanceof Error && /not a PDF or ZIP archive/i.test(error.message);
@@ -1931,8 +1954,30 @@ export default function AppV2() {
         unsupportedType ? 'unsupported_type' : 'unknown',
         attemptedKind,
       );
-      setImportError(error instanceof Error ? error.message : 'The selected files could not be imported.');
+      const message = error instanceof Error ? error.message : 'The selected files could not be imported.';
+      setImportError(imported.length > 0
+        ? `${imported.length} ${imported.length === 1 ? 'book added' : 'books added'}. ${message}${/[.!?]$/.test(message) ? '' : '.'} Remaining files were not added.`
+        : message);
     } finally {
+      // Keep completed imports visible when a later file in the batch fails.
+      if (imported.length > 0) {
+        setDocuments((current) => {
+          const next = normalizeLibraryDocuments([...imported, ...current]);
+          if (!hydrateReadyRef.current) pendingLibraryMergeRef.current = next;
+          return next;
+        });
+        if (imported[0]) {
+          if (!hydrateReadyRef.current) {
+            pendingBootstrapActiveDocumentIdRef.current = imported[0].id;
+          }
+          setActiveDocumentId(imported[0].id);
+          setPageIndex(0);
+          setSavedBlockIndex(0);
+          setSavedWordIndex(0);
+          setReaderView('reading');
+          setLibraryOpen(false);
+        }
+      }
       setImportBusy(false);
     }
   }, []);
@@ -2044,6 +2089,7 @@ export default function AppV2() {
         updatedAt: Date.now(),
       });
       setBookStream(null);
+      loadedStreamDocumentIdRef.current = null;
       setPageContent({ pageIndex: -1, blocks: [] });
       setMarkdownBlocks([]);
       setPaintedPage(null);
@@ -2252,6 +2298,7 @@ export default function AppV2() {
     saveLibrary([]);
     saveActiveDocumentId(null);
     setBookStream(null);
+    loadedStreamDocumentIdRef.current = null;
     setSource(null);
     setPairedPdf(null);
     setDocumentError(null);
@@ -2550,6 +2597,19 @@ export default function AppV2() {
         </div>
       </header>
 
+      {localSaveFailures.length > 0 ? (
+        <div className="pe-local-save-warning" role="alert">
+          <p>Changes could not be saved on this device. Keep this tab open, allow browser storage or free up space, then retry.</p>
+          <button type="button" className="pe-button pe-button-secondary" onClick={() => {
+            recordLocalSave('library', saveLibrary(documents));
+            recordLocalSave('preferences', savePreferences(preferences));
+            if (!firebaseMode || hydrateReady) {
+              recordLocalSave('position', saveActiveDocumentId(activeDocumentId));
+            }
+          }}>Try saving again</button>
+        </div>
+      ) : null}
+
       {showGuestSyncBanner ? (
         <div className="pe-guest-banner" role="status">
           <p>
@@ -2697,6 +2757,7 @@ export default function AppV2() {
               <section
                 className="pe-reader-stage"
                 ref={readerStageRef}
+                aria-busy={documentLoading || (Boolean(bookStream) && (!viewportReady || viewportPacking))}
                 onTouchStart={onStageTouchStart}
                 onTouchEnd={onStageTouchEnd}
               >
@@ -3065,7 +3126,10 @@ export default function AppV2() {
           || 'your book'
         }
         onContinue={() => {
-          if (handoffResume) applyHandoffTarget(handoffResume);
+          if (handoffResume) {
+            handoffArrivalRef.current = 'url';
+            setHandoffResume(null);
+          }
         }}
         onDismiss={dismissPendingHandoff}
       />

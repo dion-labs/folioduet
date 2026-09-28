@@ -118,13 +118,14 @@ function isPageFurniture(
     }
   }
 
-  if (blockIndex <= 3) {
+  // A filename match alone cannot identify ordinary prose as page furniture.
+  if (isHeading && blockIndex <= 3) {
     const normalizedDocumentName = normalizeTitle(documentName);
     const shortEnough = normalizedText.split(/\s+/).length <= 16;
     if (
       shortEnough &&
       normalizedDocumentName.length >= 5 &&
-      (normalizedText.includes(normalizedDocumentName) || normalizedDocumentName.includes(normalizedText))
+      normalizedText === normalizedDocumentName
     ) {
       return true;
     }

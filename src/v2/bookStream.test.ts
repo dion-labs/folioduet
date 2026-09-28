@@ -145,6 +145,20 @@ describe('resolvePackRestore', () => {
     expect(restored.streamIndex).toBe(0);
   });
 
+  it('clamps an impossible legacy page only after the final pack is available', () => {
+    const legacy = { pageIndex: 999, blockIndex: 1, wordIndex: 2 };
+    const stream = { streamIndex: 0, wordIndex: 0 };
+    expect(resolvePackRestore([0, 4], [4, 3], stream, legacy).deferredPageAnchor).toBe(true);
+    expect(resolvePackRestore([0, 4], [4, 3], stream, legacy, true)).toMatchObject({
+      pageIndex: 1, localBlockIndex: 1, streamIndex: 5, wordIndex: 2,
+      deferredPageAnchor: false, consumedPageAnchor: true,
+    });
+    expect(resolvePackRestore([0], [1], stream, legacy, true)).toMatchObject({
+      pageIndex: 0, localBlockIndex: 0, streamIndex: 0,
+      deferredPageAnchor: false, consumedPageAnchor: true,
+    });
+  });
+
   it('falls back to stream anchor when no page anchor is set', () => {
     const restored = resolvePackRestore(
       [0, 4, 9],

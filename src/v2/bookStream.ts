@@ -377,6 +377,7 @@ export function resolvePackRestore(
   pageBlockCounts: number[],
   streamAnchor: PackStreamAnchor,
   pageAnchor: PackPageAnchor | null,
+  finalized = false,
 ): {
   pageIndex: number;
   localBlockIndex: number;
@@ -390,7 +391,10 @@ export function resolvePackRestore(
   const streamWord = Math.max(0, Math.floor(streamAnchor.wordIndex));
 
   if (pageAnchor) {
-    const rawPage = Math.max(0, Math.floor(pageAnchor.pageIndex));
+    const requestedPage = Math.max(0, Math.floor(pageAnchor.pageIndex));
+    const rawPage = finalized
+      ? Math.min(requestedPage, Math.max(0, pageStarts.length - 1))
+      : requestedPage;
     // Provisional / stub packs often have fewer pages than a prior viewport pack.
     // Clamping to the last page (or to 0 when pageStarts is [0]) and consuming the
     // anchor permanently snaps resume to the title page.

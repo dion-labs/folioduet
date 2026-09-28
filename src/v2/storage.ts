@@ -39,6 +39,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, asNumber(value, fallback)));
+}
+
 function asNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -93,15 +97,25 @@ export function loadLibrary(): LibraryDocument[] {
   }
 }
 
-export function saveLibrary(documents: LibraryDocument[]): void {
-  localStorage.setItem(LIBRARY_KEY, JSON.stringify(documents));
+/** A failed local save must not tear down the in-memory reading session. */
+export function saveLibrary(documents: LibraryDocument[]): boolean {
+  try {
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(documents));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Captured once at first read so auth boot races can't erase the restore hint. */
 let bootActiveDocumentId: string | null | undefined;
 
 export function loadActiveDocumentId(): string | null {
-  return localStorage.getItem(ACTIVE_DOCUMENT_KEY);
+  try {
+    return localStorage.getItem(ACTIVE_DOCUMENT_KEY);
+  } catch {
+    return null;
+  }
 }
 
 /** Snapshot of last-open id from before this page's auth/hydrate ran. */
@@ -116,11 +130,16 @@ export function peekBootActiveDocumentId(): string | null {
   return bootActiveDocumentId;
 }
 
-export function saveActiveDocumentId(documentId: string | null): void {
-  if (documentId) {
-    localStorage.setItem(ACTIVE_DOCUMENT_KEY, documentId);
-  } else {
-    localStorage.removeItem(ACTIVE_DOCUMENT_KEY);
+export function saveActiveDocumentId(documentId: string | null): boolean {
+  try {
+    if (documentId) {
+      localStorage.setItem(ACTIVE_DOCUMENT_KEY, documentId);
+    } else {
+      localStorage.removeItem(ACTIVE_DOCUMENT_KEY);
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -144,10 +163,14 @@ export function loadPreferences(): ReaderPreferences {
   try {
     const saved = localStorage.getItem(PREFERENCES_KEY);
     if (!saved) {
+      const legacyVolume = localStorage.getItem('bimodal-tts-volume');
       return migrateFishDefaultOn({
         ...defaultPreferences,
         appearance: localStorage.getItem('bimodal-dark-mode') === 'false' ? 'light' : 'dark',
-        volume: Number(localStorage.getItem('bimodal-tts-volume')) || 1,
+        volume: boundedNumber(
+          legacyVolume?.trim() ? Number(legacyVolume) : undefined,
+          1, 0, 1,
+        ),
         inworldEnabled: localStorage.getItem('bimodal-inworld-enabled') === 'true',
         inworldVoiceId: localStorage.getItem('bimodal-inworld-voiceid') || 'Ashley',
         fishAudioEnabled: localStorage.getItem('bimodal-fishaudio-enabled') !== 'false',
@@ -161,9 +184,9 @@ export function loadPreferences(): ReaderPreferences {
     return migrateFishDefaultOn({
       ...defaultPreferences,
       appearance: parsed.appearance === 'light' ? 'light' : 'dark',
-      fontScale: asNumber(parsed.fontScale, 1),
+      fontScale: boundedNumber(parsed.fontScale, 1, 0.78, 1.45),
       playbackRate: asNumber(parsed.playbackRate, 1),
-      volume: asNumber(parsed.volume, 1),
+      volume: boundedNumber(parsed.volume, 1, 0, 1),
       ttsBufferAhead: normalizeTtsBufferAhead(parsed.ttsBufferAhead),
       pdfExtractor: parsed.pdfExtractor === 'anydoc' ? 'anydoc' : 'pageecho',
       inworldEnabled: parsed.inworldEnabled === true,
@@ -183,9 +206,14 @@ export function loadPreferences(): ReaderPreferences {
   }
 }
 
-export function savePreferences(preferences: ReaderPreferences): void {
+export function savePreferences(preferences: ReaderPreferences): boolean {
   const { inworldApiKey: _i, fishAudioApiKey: _f, ...safe } = preferences;
-  localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ ...safe, inworldApiKey: '', fishAudioApiKey: '' }));
+  try {
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify({ ...safe, inworldApiKey: '', fishAudioApiKey: '' }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function saveSourceFile(documentId: string, file: File): Promise<void> {

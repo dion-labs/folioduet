@@ -9,15 +9,26 @@ export type ViewportPackCacheEntry = {
   pageStarts: number[];
 };
 
-/** Cheap content fingerprint — reject stale packs after re-extract / edit. */
+/** Fingerprint every layout input so same-length re-extraction invalidates a pack. */
 export function streamFingerprint(stream: BookStreamBlock[]): string {
-  if (stream.length === 0) return '0';
-  let words = 0;
-  for (const block of stream) words += block.words;
-  const head = stream[0]?.key ?? '';
-  const mid = stream[Math.floor(stream.length / 2)]?.key ?? '';
-  const tail = stream[stream.length - 1]?.key ?? '';
-  return `${stream.length}:${words}:${head}:${mid}:${tail}`;
+  let hash = 2166136261;
+  for (const block of stream) {
+    const input = JSON.stringify(block);
+    for (let i = 0; i < input.length; i += 1) {
+      hash = Math.imul(hash ^ input.charCodeAt(i), 16777619);
+    }
+  }
+  return `${stream.length}:content-v2:${hash >>> 0}`;
+}
+
+function validPageStarts(value: unknown, streamLength?: number): value is number[] {
+  return Array.isArray(value)
+    && value.length > 0
+    && value[0] === 0
+    && value.every((start, index) => Number.isSafeInteger(start)
+      && start >= 0
+      && (index === 0 || start > value[index - 1])
+      && (streamLength === undefined || start < Math.max(1, streamLength)));
 }
 
 export function pagesFromStarts(
@@ -25,7 +36,7 @@ export function pagesFromStarts(
   pageStarts: number[],
 ): BookStreamBlock[][] {
   if (stream.length === 0) return [[]];
-  if (pageStarts.length === 0) return [stream];
+  if (!validPageStarts(pageStarts, stream.length)) return [stream];
   return pageStarts.map((start, index) => {
     const end = pageStarts[index + 1] ?? stream.length;
     return stream.slice(Math.max(0, start), Math.max(start, end));
@@ -36,6 +47,7 @@ export function loadViewportPackCache(
   documentId: string,
   fingerprint: string,
   packKey: string,
+  streamLength?: number,
 ): ViewportPackCacheEntry | null {
   try {
     const raw = localStorage.getItem(CACHE_PREFIX + documentId);
@@ -45,13 +57,10 @@ export function loadViewportPackCache(
       parsed?.v !== 1
       || parsed.fingerprint !== fingerprint
       || parsed.packKey !== packKey
-      || !Array.isArray(parsed.pageStarts)
-      || parsed.pageStarts.length === 0
+      || !validPageStarts(parsed.pageStarts, streamLength)
     ) {
       return null;
     }
-    const last = parsed.pageStarts[parsed.pageStarts.length - 1];
-    if (typeof last !== 'number' || last < 0) return null;
     return parsed;
   } catch {
     return null;

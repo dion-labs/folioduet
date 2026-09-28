@@ -1,0 +1,34 @@
+{
+  "checkedAt": "2026-09-22T08:22:58.106Z",
+  "node": "v22.22.3",
+  "blockedExternal": 25,
+  "blockedWrites": 0,
+  "serviceRequestsStubbed": 5,
+  "errors": [],
+  "scope": "Isolated Firebase-disabled production build; readonly loopback server and external-denying proxy. Cold offline shell and one previously opened synthetic local PDF, not physical PWA installation or account/provider acceptance.",
+  "engine": "Headless Chrome/Chromium 153.0.8010.48",
+  "cachedBeforeOffline": [
+    {
+      "key": "pageecho-shell-v4",
+      "paths": [
+        "/",
+        "/manifest.webmanifest",
+        "/icons/pageecho-192.png",
+        "/icons/pageecho-512.png",
+        "/brand/folioduet-narrator-avatar-v1.png",
+        "/brand/folioduet-narrator-tattoo-v4.png",
+        "/brand/folioduet-narrator-v1.png",
+        "/assets/index-C7BioWmd.js",
+        "/assets/index-DBTRAITd.css"
+      ]
+    }
+  ],
+  "offlineShell": true,
+  "brokenImages": [],
+  "onlineBook": true,
+  "offlineBook": true,
+  "failedUpdateKeptOld": true,
+  "updateState": "activated",
+  "updatePreservedForeignCache": true,
+  "offlineAfterUpdate": true
+}

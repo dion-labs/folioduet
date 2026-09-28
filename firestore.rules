@@ -153,6 +153,100 @@ service cloud.firestore {
         && data.createdAt is timestamp;
     }
 
+    function validBoxieCanonicalManifest(data) {
+      return data.keys().hasAll([
+          'schemaVersion', 'epoch', 'recordKind', 'accountScopeId',
+          'algorithm', 'contentType', 'nonce', 'wrappedKeyNonce', 'wrappedKey',
+          'replicaRevision', 'storage', 'state', 'ciphertextSize', 'chunkCount',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'epoch', 'recordKind', 'accountScopeId',
+          'algorithm', 'contentType', 'nonce', 'wrappedKeyNonce', 'wrappedKey',
+          'replicaRevision', 'storage', 'state', 'ciphertextSize', 'chunkCount',
+          'ciphertext', 'createdAt', 'updatedAt'
+        ])
+        && data.schemaVersion == 1
+        && data.epoch is int
+        && data.recordKind in ['mailbox', 'message']
+        && data.accountScopeId is string
+        && data.accountScopeId.matches('^obj_[A-Za-z0-9_-]{43}$')
+        && data.algorithm == 'AES-256-GCM'
+        && data.contentType in [
+          'application/vnd.boxie.canonical-mailbox+json',
+          'application/vnd.boxie.canonical-message+json'
+        ]
+        && (
+          (data.recordKind == 'mailbox'
+            && data.contentType == 'application/vnd.boxie.canonical-mailbox+json')
+          || (data.recordKind == 'message'
+            && data.contentType == 'application/vnd.boxie.canonical-message+json')
+        )
+        && data.nonce is string
+        && data.nonce.size() <= 32
+        && data.wrappedKeyNonce is string
+        && data.wrappedKeyNonce.size() <= 32
+        && data.wrappedKey is string
+        && data.wrappedKey.size() <= 128
+        && data.replicaRevision is string
+        && data.replicaRevision.size() <= 65
+        && data.storage in ['inline', 'chunked']
+        && data.state in ['uploading', 'complete']
+        && data.ciphertextSize is int
+        && data.ciphertextSize >= 1
+        && data.ciphertextSize <= 22400000
+        && data.chunkCount is int
+        && data.chunkCount >= 0
+        && data.chunkCount <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (
+          (
+            data.storage == 'inline'
+            && data.state == 'complete'
+            && data.chunkCount == 0
+            && data.ciphertext is string
+            && data.ciphertext.size() == data.ciphertextSize
+            && data.ciphertext.size() <= 450000
+          ) || (
+            data.storage == 'chunked'
+            && data.chunkCount >= 2
+            && data.ciphertextSize > 450000
+            && !data.keys().hasAny(['ciphertext'])
+          )
+        );
+    }
+
+    function validBoxieCanonicalChunk(uid, vaultId, objectId, data) {
+      let manifest = getAfter(
+        /databases/$(database)/documents/boxie/$(uid)/vaults/$(vaultId)/canonical/$(objectId)
+      ).data;
+      return data.keys().hasAll([
+          'schemaVersion', 'epoch', 'replicaRevision', 'index', 'ciphertext',
+          'ciphertextSize', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'schemaVersion', 'epoch', 'replicaRevision', 'index', 'ciphertext',
+          'ciphertextSize', 'updatedAt'
+        ])
+        && data.schemaVersion == 1
+        && data.epoch is int
+        && data.replicaRevision is string
+        && data.replicaRevision.size() <= 65
+        && data.index is int
+        && data.index >= 0
+        && data.index < 64
+        && data.ciphertext is string
+        && data.ciphertext.size() == data.ciphertextSize
+        && data.ciphertext.size() <= 350000
+        && data.updatedAt is timestamp
+        && manifest.storage == 'chunked'
+        && manifest.state == 'uploading'
+        && manifest.epoch == data.epoch
+        && manifest.replicaRevision == data.replicaRevision
+        && data.index < manifest.chunkCount;
+    }
+
     function validPendingBoxiePairing(data) {
       return data.keys().hasAll([
           'schemaVersion', 'vaultId', 'epoch', 'requestingDeviceId',
@@ -207,10 +301,62 @@ service cloud.firestore {
         && data.approvedAt is timestamp;
     }
 
+    function boxieAccountAvailable(uid) {
+      let root = /databases/$(database)/documents/boxie/$(uid);
+      return isOwner(uid) && (!existsAfter(root) || !getAfter(root).data.keys().hasAny(['deletionRequested']));
+    }
+    match /boxieDeletion/{uid} {
+      allow get: if isOwner(uid);
+      allow list, update, delete: if false;
+      allow create: if isOwner(uid)
+        && request.auth.token.auth_time >= request.time.toMillis() / 1000 - 300
+        && request.resource.data.keys().hasOnly(['status', 'requestedAt', 'version'])
+        && request.resource.data.status == 'requested'
+        && request.resource.data.version == 1
+        && request.resource.data.requestedAt == request.time
+        && (!existsAfter(/databases/$(database)/documents/boxie/$(uid))
+          || getAfter(/databases/$(database)/documents/boxie/$(uid)).data.deletionRequested == true);
+    }
+
     match /boxie/{uid} {
-      allow read: if isOwner(uid);
-      allow create: if isOwner(uid) && validBoxieRoot(request.resource.data);
-      allow update: if isOwner(uid)
+      // Private, bounded product reports; recursively erased with the Boxie account.
+      match /supportState/{kind} {
+        allow get: if boxieAccountAvailable(uid);
+        allow list, delete: if false;
+        allow create, update: if boxieAccountAvailable(uid)
+          && !exists(/databases/$(database)/documents/boxieDeletion/$(uid))
+          && request.auth.token.firebase.sign_in_provider != 'anonymous'
+          && kind in ['feedback', 'diagnostic']
+          && request.resource.data.keys().hasOnly(['count','startedAt','updatedAt','lastId'])
+          && request.resource.data.count is int && request.resource.data.count >= 1 && request.resource.data.count <= 20
+          && request.resource.data.lastId is string && request.resource.data.lastId.size() <= 64
+          && request.resource.data.updatedAt == request.time
+          && ((!exists(/databases/$(database)/documents/boxie/$(uid)/supportState/$(kind))
+                && request.resource.data.count == 1 && request.resource.data.startedAt == request.time)
+            || (request.time >= resource.data.updatedAt + duration.value(60,'s')
+              && ((request.resource.data.startedAt == resource.data.startedAt && request.resource.data.count == resource.data.count + 1)
+                || (request.time >= resource.data.startedAt + duration.value(24,'h') && request.resource.data.startedAt == request.time && request.resource.data.count == 1))));
+      }
+      match /supportReports/{reportId} {
+        allow read, update, delete: if false;
+        allow create: if boxieAccountAvailable(uid)
+          && !exists(/databases/$(database)/documents/boxieDeletion/$(uid))
+          && request.auth.token.firebase.sign_in_provider != 'anonymous'
+          && request.resource.data.keys().hasOnly(['kind','code','message','release','platform','createdAt'])
+          && request.resource.data.kind in ['feedback','diagnostic']
+          && request.resource.data.code in ['startup','sync','signin','uncaught','other']
+          && request.resource.data.message is string && request.resource.data.message.size() <= 2000
+          && (request.resource.data.kind == 'feedback' || request.resource.data.message == '')
+          && request.resource.data.release is string && request.resource.data.release.size() <= 40
+          && request.resource.data.platform in ['web','android','macos']
+          && request.resource.data.createdAt == request.time
+          && getAfter(/databases/$(database)/documents/boxie/$(uid)/supportState/$(request.resource.data.kind)).data.lastId == reportId
+          && getAfter(/databases/$(database)/documents/boxie/$(uid)/supportState/$(request.resource.data.kind)).data.updatedAt == request.time;
+      }
+
+      allow read: if boxieAccountAvailable(uid);
+      allow create: if boxieAccountAvailable(uid) && !existsAfter(/databases/$(database)/documents/boxieDeletion/$(uid)) && validBoxieRoot(request.resource.data);
+      allow update: if boxieAccountAvailable(uid)
         && validBoxieRoot(request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['activeVaultId', 'epoch', 'updatedAt'])
@@ -223,15 +369,21 @@ service cloud.firestore {
             && request.resource.data.activeVaultId != resource.data.activeVaultId
           )
         );
+      // A request and its root fence must commit atomically; old writers cannot remove it.
+      allow update: if isOwner(uid)
+        && request.auth.token.auth_time >= request.time.toMillis() / 1000 - 300
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletionRequested'])
+        && request.resource.data.deletionRequested == true
+        && getAfter(/databases/$(database)/documents/boxieDeletion/$(uid)).data.status == 'requested';
       // Reset advances the root epoch; clients never delete it and reopen epoch 1.
       allow delete: if false;
 
       match /devices/{deviceId} {
-        allow read, delete: if isOwner(uid);
-        allow create: if isOwner(uid)
+        allow read, delete: if boxieAccountAvailable(uid);
+        allow create: if boxieAccountAvailable(uid)
           && validBoxieDevice(request.resource.data)
           && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
-        allow update: if isOwner(uid)
+        allow update: if boxieAccountAvailable(uid)
           && validBoxieDevice(request.resource.data)
           && isCurrentBoxieEpoch(uid, request.resource.data.epoch)
           && request.resource.data.diff(resource.data).affectedKeys()
@@ -239,11 +391,11 @@ service cloud.firestore {
       }
 
       match /pairings/{pairingId} {
-        allow read, delete: if isOwner(uid);
-        allow create: if isOwner(uid)
+        allow read, delete: if boxieAccountAvailable(uid);
+        allow create: if boxieAccountAvailable(uid)
           && validPendingBoxiePairing(request.resource.data)
           && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
-        allow update: if isOwner(uid)
+        allow update: if boxieAccountAvailable(uid)
           && resource.data.status == 'pending'
           && request.time < resource.data.expiresAt
           && isCurrentBoxieEpoch(uid, request.resource.data.epoch)
@@ -255,17 +407,169 @@ service cloud.firestore {
       }
 
       match /vaults/{vaultId} {
-        allow read, delete: if isOwner(uid);
-        allow create: if isOwner(uid)
+        allow read, delete: if boxieAccountAvailable(uid);
+        allow create: if boxieAccountAvailable(uid)
           && validBoxieVault(request.resource.data)
           && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
         allow update: if false;
 
         match /objects/{objectId} {
-          allow read, delete: if isOwner(uid);
-          allow create, update: if isOwner(uid)
+          allow read, delete: if boxieAccountAvailable(uid);
+          allow create, update: if boxieAccountAvailable(uid)
             && validBoxieObject(request.resource.data)
             && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
+        }
+
+        // Boxie sync v2: additive staging paths. No legacy cutover is enabled here.
+        // Missing/preparing control preserves v1. Frozen and active are one-way
+        // within this vault epoch; old clients cannot bypass this cutoff.
+        function legacySyncWritesAllowed() {
+          let path = /databases/$(database)/documents/boxie/$(uid)/vaults/$(vaultId)/syncControl/rollout;
+          return !existsAfter(path) || getAfter(path).data.phase == 'preparing';
+        }
+        function v2HeadWriterAllowed(owner) {
+          let path = /databases/$(database)/documents/boxie/$(uid)/vaults/$(vaultId)/syncControl/rollout;
+          return !existsAfter(path) || getAfter(path).data.phase == 'active'
+            || (getAfter(path).data.phase == 'frozen' && getAfter(path).data.migrationOwner == owner);
+        }
+        match /syncControl/rollout {
+          function validControl(data) {
+            return currentV2(data)
+              && data.keys().hasOnly(['protocol', 'epoch', 'phase', 'migrationOwner', 'updatedAt'])
+              && data.phase in ['preparing', 'frozen', 'active']
+              && data.migrationOwner is string && data.migrationOwner.size() > 0 && data.migrationOwner.size() <= 200
+              && data.updatedAt == request.time;
+          }
+          allow read: if boxieAccountAvailable(uid);
+          allow create: if validControl(request.resource.data) && request.resource.data.phase == 'preparing';
+          allow update: if validControl(request.resource.data)
+            && request.resource.data.epoch == resource.data.epoch
+            && request.resource.data.migrationOwner == resource.data.migrationOwner
+            && ((resource.data.phase == 'preparing' && request.resource.data.phase == 'frozen')
+              || (resource.data.phase == 'frozen' && request.resource.data.phase == 'active'));
+          allow delete: if false;
+        }
+        function currentV2(data) {
+          return boxieAccountAvailable(uid) && data.protocol == 2 && data.epoch is int
+            && isCurrentBoxieEpoch(uid, data.epoch)
+            && getAfter(/databases/$(database)/documents/boxie/$(uid)).data.activeVaultId == vaultId;
+        }
+        function validV2Head(data, objectId) {
+          let revision = getAfter(/databases/$(database)/documents/boxie/$(uid)/vaults/$(vaultId)/syncObjects/$(objectId)/revisions/$(data.revision));
+          return currentV2(data) && v2HeadWriterAllowed(data.owner)
+            && data.keys().hasOnly(['protocol', 'epoch', 'kind', 'revision', 'baseRevision', 'sequence', 'stream', 'fence', 'owner', 'updatedAt'])
+            && data.kind in ['identity', 'source', 'checkpoint', 'organization', 'assistant']
+            && data.revision is string && data.revision.matches('^[A-Za-z0-9_-]{1,200}$')
+            && data.owner is string && data.owner.size() > 0 && data.owner.size() <= 200
+            && data.sequence is int && data.sequence > 0
+            && data.updatedAt == request.time
+            && revision.data.epoch == data.epoch
+            && (data.kind in ['source', 'checkpoint'] ? validV2Fence(data) : (data.stream == null && data.fence == null));
+        }
+        function validV2Fence(data) {
+          let lease = getAfter(/databases/$(database)/documents/boxie/$(uid)/vaults/$(vaultId)/syncLeases/$(data.stream)).data;
+          return data.stream is string && data.fence is int
+            && lease.owner == data.owner && lease.fence == data.fence
+            && lease.epoch == data.epoch && lease.expiresAt > request.time;
+        }
+        match /syncHeads/{objectId} {
+          allow read: if boxieAccountAvailable(uid);
+          allow create: if validV2Head(request.resource.data, objectId)
+            && request.resource.data.baseRevision == null && request.resource.data.sequence == 1;
+          allow update: if validV2Head(request.resource.data, objectId)
+            && request.resource.data.kind == resource.data.kind
+            && request.resource.data.stream == resource.data.stream
+            && request.resource.data.epoch == resource.data.epoch
+            && request.resource.data.baseRevision == resource.data.revision
+            && request.resource.data.revision != resource.data.revision
+            && request.resource.data.sequence == resource.data.sequence + 1;
+          allow delete: if false;
+        }
+        match /syncClocks/{deviceId} {
+          allow read: if boxieAccountAvailable(uid);
+          allow create, update: if currentV2(request.resource.data)
+            && request.resource.data.keys().hasOnly(['protocol', 'epoch', 'updatedAt'])
+            && request.resource.data.updatedAt == request.time;
+          allow delete: if false;
+        }
+        match /syncLeases/{streamId} {
+          function validLease(data) {
+            return currentV2(data)
+              && data.keys().hasOnly(['protocol', 'epoch', 'owner', 'fence', 'expiresAt', 'updatedAt'])
+              && data.owner is string && data.owner.size() > 0 && data.owner.size() <= 200
+              && data.fence is int && data.fence > 0
+              && data.expiresAt is timestamp && data.expiresAt > request.time
+              && data.expiresAt <= request.time + duration.value(120, 's')
+              && data.updatedAt == request.time;
+          }
+          allow read: if boxieAccountAvailable(uid);
+          allow create: if validLease(request.resource.data) && request.resource.data.fence == 1;
+          allow update: if validLease(request.resource.data)
+            && request.resource.data.epoch == resource.data.epoch
+            && ((resource.data.expiresAt > request.time
+                && request.resource.data.owner == resource.data.owner
+                && request.resource.data.fence == resource.data.fence)
+              || (resource.data.expiresAt <= request.time
+                && request.resource.data.fence == resource.data.fence + 1));
+          allow delete: if false;
+        }
+        function stagedChunk(objectId, revisionId, key, index, epoch) {
+          let chunk = getAfter(/databases/$(database)/documents/boxie/$(uid)/vaults/$(vaultId)/syncObjects/$(objectId)/revisions/$(revisionId)/chunks/$(key)).data;
+          return chunk.epoch == epoch && chunk.index == index;
+        }
+        match /syncObjects/{objectId}/revisions/{revisionId} {
+          allow read: if boxieAccountAvailable(uid);
+          allow create: if currentV2(request.resource.data)
+            && request.resource.data.keys().hasOnly(['protocol', 'epoch', 'envelope', 'chunkCount', 'ciphertextSize'])
+            && request.resource.data.chunkCount is int && request.resource.data.chunkCount >= 1 && request.resource.data.chunkCount <= 8
+            && request.resource.data.ciphertextSize is int && request.resource.data.ciphertextSize > 0 && request.resource.data.ciphertextSize <= 2800000
+            && (request.resource.data.chunkCount <= 0 || stagedChunk(objectId, revisionId, '0000', 0, request.resource.data.epoch))
+            && (request.resource.data.chunkCount <= 1 || stagedChunk(objectId, revisionId, '0001', 1, request.resource.data.epoch))
+            && (request.resource.data.chunkCount <= 2 || stagedChunk(objectId, revisionId, '0002', 2, request.resource.data.epoch))
+            && (request.resource.data.chunkCount <= 3 || stagedChunk(objectId, revisionId, '0003', 3, request.resource.data.epoch))
+            && (request.resource.data.chunkCount <= 4 || stagedChunk(objectId, revisionId, '0004', 4, request.resource.data.epoch))
+            && (request.resource.data.chunkCount <= 5 || stagedChunk(objectId, revisionId, '0005', 5, request.resource.data.epoch))
+            && (request.resource.data.chunkCount <= 6 || stagedChunk(objectId, revisionId, '0006', 6, request.resource.data.epoch))
+            && (request.resource.data.chunkCount <= 7 || stagedChunk(objectId, revisionId, '0007', 7, request.resource.data.epoch))
+            && request.resource.data.envelope.keys().hasOnly(['schemaVersion', 'epoch', 'algorithm', 'contentType', 'nonce', 'wrappedKeyNonce', 'wrappedKey'])
+            && request.resource.data.envelope.schemaVersion == 1
+            && request.resource.data.envelope.epoch == request.resource.data.epoch
+            && request.resource.data.envelope.algorithm == 'AES-256-GCM'
+            && request.resource.data.envelope.contentType == 'application/vnd.boxie.sync-v2+json'
+            && request.resource.data.envelope.nonce is string && request.resource.data.envelope.nonce.size() <= 32
+            && request.resource.data.envelope.wrappedKeyNonce is string && request.resource.data.envelope.wrappedKeyNonce.size() <= 32
+            && request.resource.data.envelope.wrappedKey is string && request.resource.data.envelope.wrappedKey.size() <= 128;
+          allow update, delete: if false;
+          match /chunks/{chunkId} {
+            allow read: if boxieAccountAvailable(uid);
+            allow create: if currentV2(request.resource.data)
+              && !exists(/databases/$(database)/documents/boxie/$(uid)/vaults/$(vaultId)/syncObjects/$(objectId)/revisions/$(revisionId))
+              && chunkId.matches('^[0-9]{4}$')
+              && request.resource.data.keys().hasOnly(['protocol', 'epoch', 'index', 'ciphertext'])
+              && request.resource.data.index is int && request.resource.data.index >= 0 && request.resource.data.index < 8
+              && request.resource.data.ciphertext is string && request.resource.data.ciphertext.size() > 0 && request.resource.data.ciphertext.size() <= 350000;
+            allow update, delete: if false;
+          }
+        }
+
+        match /canonical/{objectId} {
+          allow read: if boxieAccountAvailable(uid);
+          allow delete: if boxieAccountAvailable(uid) && legacySyncWritesAllowed();
+          allow create, update: if boxieAccountAvailable(uid) && legacySyncWritesAllowed()
+            && objectId.matches('^obj_[A-Za-z0-9_-]{43}$')
+            && validBoxieCanonicalManifest(request.resource.data)
+            && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
+
+          match /chunks/{chunkId} {
+            allow read: if boxieAccountAvailable(uid);
+          allow delete: if boxieAccountAvailable(uid) && legacySyncWritesAllowed();
+            allow create, update: if boxieAccountAvailable(uid) && legacySyncWritesAllowed()
+              && chunkId.matches('^[0-9]{4}$')
+              && validBoxieCanonicalChunk(
+                uid, vaultId, objectId, request.resource.data
+              )
+              && isCurrentBoxieEpoch(uid, request.resource.data.epoch);
+          }
         }
       }
     }
