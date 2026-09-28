@@ -7,3 +7,5 @@ The web candidate adds a parser comparison workbench and improves PDF.js single-
 Validation: current integrated checkout 257 tests passed, 1 optional fixture skipped; production web build passed; browser recovery 47 scenarios; Android release build/lint/signature and isolated guest/demo launch checked. Real Google sign-in, independent-account/device sync and physical audible playback are not certified.
 
 Pending release steps: review this candidate, deploy the canonical-host certificate association with the web candidate, verify fullscreen on Android and run post-deployment live checks, then publish the appropriately labelled GitHub preview assets and update download links. No Instagram posting, Slack delivery, Play submission or production deployment has occurred.
+
+Source isolation: the committed candidate alone passes 192 tests, 1 optional skip, and builds. The 257-test/47-browser results above include preserved earlier uncommitted reader improvements. Do not attribute that broader coverage to a deployment of the isolated commit.

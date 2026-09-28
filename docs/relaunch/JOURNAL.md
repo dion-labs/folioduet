@@ -33,3 +33,8 @@ Keep fresh automated, browser/emulator, physical-device, Google-account, release
 
 ## Final local checks
 257 unit/integration tests passed, 1 optional fixture skipped; web build passes. Private source prose/PDF absence checked in dist; parser-lab.html and certificate association are present. Artwork exports corrected to proportional center-crop (no stretch) and verified 1080×1350. Final APK/AAB recopied after launch fixes; SHA256SUMS regenerated. Local workbench server remains on 127.0.0.1:5198 for review. Production deployment and public release are pending; no claim of full Android parity certification.
+
+## Isolated source verification
+Commit 86153f5 contains only this request's changes; preexisting dirty reader/QA/Firebase paths remain untouched and uncommitted. Exporting that commit to /tmp/folioduet-relaunch-candidate passed 192 tests with 1 optional fixture skipped and built successfully. The higher 257-test count and 47-browser-case run belong to the integrated working checkout, including earlier September 22 work; they are not attributed to the isolated commit.
+
+Final APK and AAB signatures verified after copying the fixed artifacts; hashes are in output/android-0.1.0/SHA256SUMS. Disposable emulator and its CDP forwarding were stopped. The local workbench server remains running for D's review. Live read-only checks passed against existing production, not a new deployment.
