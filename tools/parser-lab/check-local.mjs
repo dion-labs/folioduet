@@ -21,9 +21,9 @@ try{
   const summaries=[];
   for(const id of cases){
     await page.getByLabel('Reference set').selectOption(id);
-    for(const engine of (process.env.FOLIODUET_FULL_CONTEXT ? ['pageecho'] : ['pageecho','anydoc'])){
+    for(const engine of ((process.env.FOLIODUET_FULL_CONTEXT || process.env.FOLIODUET_PDFJS_ONLY) ? ['pageecho'] : ['pageecho','anydoc'])){
       await page.getByLabel('PDF engine').selectOption(engine);
-      if(process.env.FOLIODUET_FULL_CONTEXT)await page.getByRole('checkbox').check();
+      if(process.env.FOLIODUET_FULL_CONTEXT)await page.getByLabel('Use complete-document word evidence', {exact:false}).check();
       await page.getByRole('button',{name:'Run comparison'}).click();
       await page.getByRole('button',{name:'Save review'}).waitFor();
       await page.waitForFunction(()=>!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Save review').disabled,{},{timeout:60000});
@@ -32,7 +32,7 @@ try{
       const download=await downloadPromise;
       await download.saveAs(out+'/'+id+'-'+engine+'.json');
       const metrics=await page.locator('.metrics').innerText();
-      const status=await page.getByRole('status').innerText();
+      const status=await page.locator('.engine-result').innerText();
       summaries.push({id,engine,metrics,status});console.log(id,engine,metrics.replace(/\n/g,' '));
       if(engine==='pageecho')await page.screenshot({path:out+'/'+id+'.png',fullPage:true});
     }

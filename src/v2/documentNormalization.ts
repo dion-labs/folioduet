@@ -5,9 +5,9 @@ export type WrapHyphenationStats = {
   skipped: number;
 };
 
-const WRAPPED_WORD = /([\p{L}]{2,})-([ \t]+)([\p{Ll}]{2,})/gu;
+const WRAPPED_WORD = /([\p{L}]{2,})-([ \t]+)([\p{L}]{2,})/gu;
 const COMPACT_WORD = /[\p{L}]{2,}/gu;
-const HYPHENATED_WORD = /([\p{L}]{2,})-([\p{Ll}]{2,})/gu;
+const HYPHENATED_WORD = /([\p{L}]{2,})-([\p{L}]{2,})/gu;
 
 type TextRange = { start: number; end: number };
 

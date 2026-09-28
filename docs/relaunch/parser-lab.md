@@ -56,3 +56,45 @@ Difference highlighting compares exact words and punctuation in reading,
 Markdown, and speech views. Coral marks missing/changed reference text; green
 marks added/changed parser text. Whitespace is ignored. A toggle preserves the
 underlying text; work is bounded to 6,000 tokens per side.
+
+### Expanded PDF.js checks (2026-09-28)
+
+Added 28 manually inspected/transcribed spot pages, for 31 total: 28 contain
+reading text and 3 are image-only controls. References and source page images
+remain in ignored `local-evals/parser-lab`; the production site does not receive
+the private book or reference prose. The local workbench lists every new case.
+
+Paired complete-document-context results against frozen references:
+
+| Scope | Reference words | Before agreement | After agreement | Word edits before → after |
+|---|---:|---:|---:|---:|
+| All 28 text pages | 7,541 | 97.547% | 99.602% | 185 → 30 |
+| 25 newly added text pages | 6,659 | 97.282% | 99.610% | 181 → 26 |
+| Final 4 held-out pages | 1,182 | 98.393% | 99.746% | 19 → 3 |
+
+Three image-only controls yielded zero reading words and are excluded from the
+word percentages. Matching paragraph counts plus exact heading text improved
+from 7/28 to 20/28 pages. This is a separate, incomplete structural measure; word
+agreement is not layout, semantic, image-retention or narration certification.
+Earlier holdouts were explicitly reclassified after inspection. The final four
+were evaluated after the final parser change and were not used for further tuning.
+
+Changes preserve explicit PDF whitespace, attach raised note numbers in reading
+order, keep captions above body text, recognize top headings and hanging numbered
+items, preserve list continuations, and distinguish numbered running furniture.
+Uppercase wrap repair uses the same conservative document-word evidence as other
+wraps; uncertain hyphens remain. No book-specific words or page identifiers enter
+parser logic. Existing processed books are not automatically rewritten.
+
+Remaining issues are logged locally: unmarked or damaged bullet lists, some
+bibliographic headings, text absent from the PDF text layer, ambiguous glyphs,
+uncertain hyphenation and manual-reference ambiguities. The 30 differences remain
+counted, including suspected reference mistakes, rather than silently rewriting
+references to improve the score. This pass stops at 28 additional checks after
+three iterations and fresh holdout validation; it does not claim 50 checks.
+
+Reproduce using `tools/parser-lab/check-local.mjs` with
+`FOLIODUET_FULL_CONTEXT=1`, or `FOLIODUET_PDFJS_ONLY=1` for isolated spots.
+`tools/parser-lab/summarize-local.mjs` compares the saved before/after JSONs and
+writes local aggregate and per-page reports. The source PDF/reference corpus must
+be supplied locally; it is intentionally not committed.

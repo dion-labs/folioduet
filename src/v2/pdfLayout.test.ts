@@ -47,3 +47,50 @@ describe('PDF geometry reconstruction',()=>{
     expect(positionedPdfMarkdown([{str:'No coordinates'}])).toBeNull();
   });
 });
+
+
+describe('expanded spot-page regressions',()=>{
+  it('retains explicit spaces even across tightly placed runs',()=>{
+    const first=line('A fairly long opening paragraph with word',600);
+    const space={...line(' ',600,first.transform[4]+first.width),width:.05};
+    const next=line('boundaries preserved.',600,space.transform[4]+.05);
+    const out=positionedPdfMarkdown([first,space,next,line('The next physical line has ordinary flowing prose.',585),line('The final line completes this little paragraph.',570)]);
+    expect(out).toContain('word boundaries');
+  });
+  it('places a raised note number after its sentence instead of ahead of it',()=>{
+    const out=positionedPdfMarkdown([line('The first sentence is long enough to establish prose.',600),line('The second line ends with a reference.',585),line('2',590,235,7),line('The next paragraph has plenty of ordinary words.',565)]);
+    expect(out).toContain('reference.²');
+    expect(out).not.toContain('2 The second');
+  });
+  it('retains captions above the body while removing same-size numbered furniture',()=>{
+    const out=positionedPdfMarkdown([line('27 A Running Title',720),line('Fig. 4. A small caption',650,50,9),line('The first body paragraph begins below the figure.',600),line('and continues with enough words on another line.',585)]);
+    expect(out).not.toContain('Running Title');expect(out).toContain('Fig. 4. A small caption');
+  });
+  it('recognizes the first subsection and separates hanging numbered items',()=>{
+    const out=positionedPdfMarkdown([line('A New Method',660),line('The body paragraph begins with enough ordinary words.',640),line('and continues with enough words on another line.',625),line('12.1 The first numbered statement begins at the margin.',600),line('12.2 The second numbered statement has its own block.',585)]);
+    expect(out).toContain('## A New Method');expect(out).toContain('margin.\n\n12.2');
+  });
+});
+
+it('keeps hanging list continuations together and starts the next item',()=>{
+ const out=positionedPdfMarkdown([
+  line('The preceding paragraph establishes the normal left margin.',700),
+  line('and keeps this second line at the same normal left margin.',685),
+  line('3. A numbered item begins with several ordinary words',650,55),
+  line('and continues on a hanging line of enough words.',635,72),
+  line('with a further hanging continuation of the item.',620,72),
+  line('4. The next item begins independently here.',605,55),
+ ]);
+ expect(out).toContain('words and continues');expect(out).toContain('words. with a further');
+ expect(out).toContain('item.\n\n4.');
+});
+
+it('attaches multiple raised notes sharing a baseline in reading order',()=>{
+ const out=positionedPdfMarkdown([
+  line('An ordinary long first line establishes the paragraph.',650),
+  {...line('First',635),width:25},line('4',640,75,7),
+  {...line(' and second.',635,79),width:60},line('5',640,139,7),
+  line('Another ordinary long line completes the paragraph.',620),
+ ]);
+ expect(out).toContain('First⁴ and second.⁵');expect(out).not.toContain('4 5');
+});

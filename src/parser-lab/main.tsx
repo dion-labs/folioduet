@@ -9,7 +9,7 @@ import { compareMarkdown } from './compare';
 import { textDifferences, highlightParts, type TextRange } from './differences';
 import './styles.css';
 
-type Case = { pdfPage: number; id: string; label: string; focus: string; referenceMethod: string; referenceSha256?: string; partialStart?: boolean; partialEnd?: boolean };
+type Case = { imageOnly?: boolean; split?: string; pdfPage: number; id: string; label: string; focus: string; referenceMethod: string; referenceSha256?: string; partialStart?: boolean; partialEnd?: boolean };
 type Result = { fallbackReason?: string; markdown: string; raw: string; requested: string; used: string; didFallback: boolean; elapsedMs: number; context: string };
 function Highlighted({text, offset=0, ranges, side}: {text:string; offset?:number; ranges:TextRange[]; side:'reference'|'actual'}) {
   return <>{highlightParts(text,offset,ranges).map((part,i)=>part.changed
@@ -76,8 +76,8 @@ function Lab() {
       }).catch(e=>{documentCache.current=null;throw e;});
       const extraction=whole?await documentCache.current!:await extractPdfMarkdown(file,engine);
       const pageIndex=whole?extraction.sourcePageNumbers?.indexOf(active.pdfPage):-1;
-      if(whole && (pageIndex===undefined || pageIndex<0))throw new Error('No extracted content for this physical page.');
-      const pages=whole?[extraction.pages[pageIndex!]]:extraction.pages;
+      if(whole && pageIndex===undefined)throw new Error('Physical page mapping is unavailable.');
+      const pages=whole?(pageIndex!<0?[]:[extraction.pages[pageIndex!]]):extraction.pages;
       const stream=buildBookStream(pages,'');
       if(ticket!==generation.current)return;
       setResult({fallbackReason:extraction.fallbackReason,markdown:stream.map(b=>b.markdown).join('\n\n'),raw:pages.join('\n\n'),context:whole?'complete-document word evidence':'isolated spot PDF',requested:extraction.requested,used:extraction.used,didFallback:extraction.didFallback,elapsedMs:Math.round(performance.now()-started)});
@@ -109,11 +109,11 @@ function Lab() {
     {result&&<p className="engine-result" role="status">Requested {result.requested==='pageecho'?'PDF.js':'AnyDoc'} · used {result.used==='pageecho'?'PDF.js':'AnyDoc'}{result.didFallback?' · FALLBACK OCCURRED':''} · {result.context} · {result.elapsedMs} ms</p>}
     {result?.fallbackReason&&<p className="error" role="status">{result.fallbackReason} PDF.js was used instead.</p>}
     {result&&!metrics&&<p className="error">Word metrics are limited to 5,000 words per side. Use a smaller spot excerpt; rendered content remains available.</p>}
-    {metrics&&<section className="metrics"><div><strong>{(metrics.orderedWordAccuracy*100).toFixed(1)}%</strong><span>ordered word accuracy</span></div><div><strong>{metrics.wordEdits}</strong><span>word edits</span></div><div><strong>{metrics.actualParagraphs} / {metrics.referenceParagraphs}</strong><span>paragraphs · parser / reference</span></div><div><strong>{metrics.actualHeadings.length} / {metrics.referenceHeadings.length}</strong><span>headings · parser / reference</span></div></section>}
+    {metrics&&<section className="metrics"><div><strong>{active?.imageOnly?'N/A':(metrics.orderedWordAccuracy*100).toFixed(1)+'%'}</strong><span>{active?.imageOnly?'image-only control':'ordered word accuracy'}</span></div><div><strong>{metrics.wordEdits}</strong><span>word edits</span></div><div><strong>{metrics.actualParagraphs} / {metrics.referenceParagraphs}</strong><span>paragraphs · parser / reference</span></div><div><strong>{metrics.actualHeadings.length} / {metrics.referenceHeadings.length}</strong><span>headings · parser / reference</span></div></section>}
     <nav className="view-tabs" aria-label="Comparison view">{(['rendered','markdown','speech'] as const).map(m=><button key={m} aria-pressed={mode===m} onClick={()=>setMode(m)}>{m==='speech'?'Speech text':m==='markdown'?'Markdown':'Reading view'}</button>)}</nav>
     <div className="diff-controls"><label><input type="checkbox" checked={showDifferences} onChange={e=>setShowDifferences(e.target.checked)}/>Highlight differences</label>{result&&showDifferences&&<span><mark className="diff-reference">Missing / changed reference text</mark><mark className="diff-actual">Added / changed parser text</mark></span>}</div>
     {result&&showDifferences&&<p className="diff-help">{differences?'Highlights compare exact words, case, and punctuation. Whitespace is ignored; use Markdown to inspect formatting markers.':'Highlighting is limited to 6,000 word/punctuation tokens per side. Use a smaller excerpt.'}</p>}
-    <section className="comparison"><article><h2><b>01</b> Source page</h2>{image?<a href={image} target="_blank" rel="noreferrer"><img src={image} alt={active?'Source page '+active.label:'Uploaded source page'}/></a>:<p className="empty">Add an image to inspect the printed layout.</p>}</article><article><h2><b>02</b> Manual reference</h2>{reference?content(reference,'reference'):<p className="empty">Load your independently written reference.</p>}</article><article><h2><b>03</b> Parser result</h2>{result?content(result.markdown,'actual'):<p className="empty">Run the parser to compare. Your reference never feeds the extraction.</p>}</article></section>
+    <section className="comparison"><article><h2><b>01</b> Source page</h2>{image?<a href={image} target="_blank" rel="noreferrer"><img src={image} alt={active?'Source page '+active.label:'Uploaded source page'}/></a>:<p className="empty">Add an image to inspect the printed layout.</p>}</article><article><h2><b>02</b> Manual reference</h2>{reference?content(reference,'reference'):<p className="empty">{active?'This reference contains no reading text (image-only page).':'Load your independently written reference.'}</p>}</article><article><h2><b>03</b> Parser result</h2>{result?content(result.markdown,'actual'):<p className="empty">Run the parser to compare. Your reference never feeds the extraction.</p>}</article></section>
     {result&&<details><summary>Raw extracted Markdown before reading-stream cleanup</summary><pre className="source-text">{result.raw}</pre></details>}
     <label className="notes">Review notes<textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="Record lost paragraphs, headings, furniture, hyphenation, and remaining issues…"/></label>
     <footer>Word accuracy ignores case and most punctuation. It does not certify layout, meaning, or narration. Review the page and paragraph boundaries; save the evidence before changing the parser.</footer>

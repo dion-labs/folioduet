@@ -86,3 +86,8 @@ describe('shared document normalization contract', () => {
     expect(normalizeExtractedMarkdownPages(normalized)).toEqual(normalized);
   });
 });
+
+
+it('repairs uppercase wraps only when joined document evidence supports them', () => {
+  expect(normalizeExtractedMarkdownPages(['TELESCOPE is available.', 'The TELE- SCOPE works. Long- Term remains.']).join(' ')).toContain('The TELESCOPE works. Long-Term remains.');
+});
