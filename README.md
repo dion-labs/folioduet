@@ -91,3 +91,11 @@ the canonical host to Firebase Auth authorized domains.
 ## Regression QA
 
 The [whole-app QA guide](docs/qa/README.md) contains fixture recipes, browser/device coverage, step-by-step scenario oracles, deployment gates, and an evidence-report template. Run `npm run qa:live` for read-only checks of the official production site and its deployed Firebase authorization configuration. Live Google sign-in, audio, sync and device acceptance remain separate checks.
+
+## Android preview
+
+[Download FolioDuet Android 0.1.0](https://github.com/dion-labs/folioduet/releases/tag/android-v0.1.0). The signed APK uses the shared web reader through a Trusted Web Activity. Requires a compatible browser and network for first launch. This is a preview: physical audio, fresh Google sign-in and independent-device sync are not yet certified. Build and integration details are in [android/README.md](android/README.md).
+
+## Parser comparison
+
+Open [the parser workbench](https://folioduet.dionlabs.ai/parser-lab.html) to compare your own source-page image, manually written Markdown and parser output. For the private local reference set and iteration evidence, see [docs/relaunch/parser-lab.md](docs/relaunch/parser-lab.md).

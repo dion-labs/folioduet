@@ -2,6 +2,8 @@
 
 An Android Trusted Web Activity for the canonical FolioDuet reader. It shares the browser's renderer, Google authentication, word highlighting, voices, PDF engines, IndexedDB originals, settings and Firebase library behavior. It needs a compatible browser and an internet connection for first launch. It is not a standalone Kotlin reader or a bundled offline copy.
 
+[Download the Android 0.1.0 preview](https://github.com/dion-labs/folioduet/releases/tag/android-v0.1.0).
+
 ## Build
 
 Use Java 21, Android SDK 36, and the checked-in Gradle wrapper:
