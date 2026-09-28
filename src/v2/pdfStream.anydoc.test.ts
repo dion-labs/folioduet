@@ -145,3 +145,20 @@ describe('shared strategies across extraction routes', () => {
       .resolves.toMatchObject({ pages: ['Fallback body.\n'], didFallback: true });
   });
 });
+
+describe('PDF physical-page provenance', () => {
+  it('keeps original page numbers when blank source pages are skipped', async () => {
+    mocks.getDocument.mockReturnValue({
+      promise: Promise.resolve({
+        numPages: 3,
+        getPage: vi.fn().mockImplementation(async (n: number) => ({
+          getTextContent: async () => ({items: n === 2 ? [] : [{str:'Body on source ' + n + '.',hasEOL:true}]}),
+        })),
+        destroy: vi.fn(),
+      }),
+    });
+    const result = await extractPdfMarkdown(new File(['pdf'],'fixture.pdf'), 'pageecho');
+    expect(result.sourcePageNumbers).toEqual([1,3]);
+    expect(result.pages).toHaveLength(2);
+  });
+});

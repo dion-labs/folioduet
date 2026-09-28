@@ -1,3 +1,4 @@
+import { positionedPdfMarkdown } from './pdfLayout';
 import { normalizeExtractedMarkdownPages } from './documentNormalization';
 import * as pdfjsLib from 'pdfjs-dist';
 import { buildBookStream } from './documents';
@@ -6,6 +7,8 @@ import type { PdfExtractor } from './types';
 
 export type PdfExtractionResult = {
   pages: string[];
+  /** Physical PDF pages, aligned to pages. AnyDoc currently has no page map. */
+  sourcePageNumbers?: number[];
   requested: PdfExtractor;
   used: PdfExtractor;
   didFallback: boolean;
@@ -104,19 +107,22 @@ export function pdfLinesToParagraphs(lines: string[]): string[] {
  * Extract speakable markdown pages from every PDF page that has a text layer.
  * Blank / image-only pages (covers, photos) are skipped.
  */
-async function extractPdfMarkdownPagesWithPdfJs(file: File): Promise<string[]> {
+async function extractPdfMarkdownPagesWithPdfJs(file: File): Promise<{ pages: string[]; sourcePageNumbers: number[] }> {
   const data = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjsLib.getDocument({ data });
   const pdf = await loadingTask.promise;
   const sourcePages: string[] = [];
+  const sourcePageNumbers: number[] = [];
 
   try {
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const content = await page.getTextContent();
+      const layout = positionedPdfMarkdown(content.items as PdfTextItem[]);
       const lines = pdfTextItemsToLines(content.items as PdfTextItem[]);
-      const paragraphs = pdfLinesToParagraphs(lines);
+      const paragraphs = layout !== null ? layout.trim().split(/\n\n+/).filter(Boolean) : pdfLinesToParagraphs(lines);
       if (paragraphs.length > 0) {
+        sourcePageNumbers.push(pageNumber);
         sourcePages.push(`${paragraphs.join('\n\n')}\n`);
       }
       // Yield so the UI can paint while large books extract on phones.
@@ -130,7 +136,7 @@ async function extractPdfMarkdownPagesWithPdfJs(file: File): Promise<string[]> {
     await pdf.destroy();
   }
 
-  return sourcePages;
+  return { pages: sourcePages, sourcePageNumbers };
 }
 
 /**
@@ -152,8 +158,10 @@ export async function extractPdfMarkdown(
       console.warn('[FolioDuet] AnyDoc extraction failed; using PDF.js.', error);
     }
   }
+  const pdfJs = await extractPdfMarkdownPagesWithPdfJs(file);
   return {
-    pages: normalizeExtractedMarkdownPages(await extractPdfMarkdownPagesWithPdfJs(file)),
+    pages: normalizeExtractedMarkdownPages(pdfJs.pages),
+    sourcePageNumbers: pdfJs.sourcePageNumbers,
     requested: extractor,
     used: 'pageecho',
     didFallback: extractor === 'anydoc',

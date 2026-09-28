@@ -10,3 +10,6 @@ data/
 .firebase/
 firebase-debug.log
 firestore-debug.log
+
+# Local packaged binaries; release via the artifact publisher, never Git.
+/output/android-*/

@@ -1,0 +1,38 @@
+ M docs/qa/README.md
+ M firebase-tests/boxie.rules.integration.ts
+ M firestore.rules
+ M package.json
+ M public/sw.js
+ M src/hooks/TTSEngine.test.ts
+ M src/hooks/TTSEngine.ts
+ M src/v2/AppV2.tsx
+ M src/v2/bookStream.test.ts
+ M src/v2/bookStream.ts
+ M src/v2/components/LibrarySidebar.tsx
+ M src/v2/documents.test.ts
+ M src/v2/documents.ts
+ M src/v2/handoff.test.ts
+ M src/v2/handoff.ts
+ M src/v2/storage.test.ts
+ M src/v2/storage.ts
+ M src/v2/styles.css
+ M src/v2/useViewportBookPages.ts
+ M src/v2/viewportPackCache.test.ts
+ M src/v2/viewportPackCache.ts
+ M tools/qa/check-live.test.mjs
+?? docs/TOKEN_BURN_2026-09-22.md
+?? docs/marketing/assets/
+?? docs/qa/browser-offline.md
+?? docs/qa/browser-recovery.md
+?? docs/qa/handoff-word-offset.md
+?? docs/qa/risk-map.md
+?? docs/qa/runs/2026-09-22-headless.json
+?? docs/qa/runs/2026-09-22-offline.json
+?? docs/qa/runs/2026-09-22-recovery.md
+?? docs/relaunch/
+?? output/
+?? tmp/
+?? tools/qa/browser-offline.mjs
+?? tools/qa/browser-recovery.mjs
+?? tools/qa/fixtures/
+?? tools/qa/service-worker.test.mjs

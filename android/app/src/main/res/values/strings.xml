@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">FolioDuet</string>
+    <string name="asset_statements" translatable="false">[{\"relation\":[\"delegate_permission/common.handle_all_urls\"],\"target\":{\"namespace\":\"web\",\"site\":\"https://folioduet.dionlabs.ai\"}}]</string>
+    <color name="ink">#171A18</color>
+</resources>

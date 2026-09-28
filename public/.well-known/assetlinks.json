@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ai.dionlabs.folioduet",
+      "sha256_cert_fingerprints": [
+        "CC:B9:48:0B:B2:BC:1B:D2:0C:B1:2C:79:1A:E3:EF:6C:15:17:E4:85:0C:97:C1:64:A2:CF:9F:C9:0E:84:00:86"
+      ]
+    }
+  }
+]

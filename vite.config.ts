@@ -1,3 +1,4 @@
+import { parserLabFixtures } from './tools/parser-lab/vite-plugin'
 import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -42,6 +43,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       v2Redirect,
+      parserLabFixtures(),
       {
         name: 'folioduet-static-routes',
         generateBundle() {
@@ -58,6 +60,7 @@ export default defineConfig(({ mode }) => {
       rolldownOptions: {
         input: [
           fileURLToPath(new URL('./index.html', import.meta.url)),
+          fileURLToPath(new URL('./parser-lab.html', import.meta.url)),
           fileURLToPath(new URL('./pdf-to-audiobook/index.html', import.meta.url)),
           fileURLToPath(new URL('./read-and-listen-to-pdf/index.html', import.meta.url)),
         ],

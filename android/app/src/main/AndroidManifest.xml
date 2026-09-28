@@ -1,0 +1,28 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <application android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/backup_rules" android:supportsRtl="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" android:usesCleartextTraffic="false" android:manageSpaceActivity="com.google.androidbrowserhelper.trusted.ManageDataLauncherActivity">
+        <meta-data android:name="asset_statements" android:resource="@string/asset_statements"/>
+        <activity android:name="com.google.androidbrowserhelper.trusted.LauncherActivity" android:exported="true">
+            <meta-data android:name="android.support.customtabs.trusted.DEFAULT_URL" android:value="https://folioduet.dionlabs.ai/?source=android"/>
+            <meta-data android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR" android:resource="@color/ink"/>
+            <meta-data android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR" android:resource="@color/ink"/>
+            <meta-data android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE" android:resource="@drawable/folio_icon"/>
+            <meta-data android:name="android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR" android:resource="@color/ink"/>
+            <meta-data android:name="android.support.customtabs.trusted.SPLASH_SCREEN_FADE_OUT_DURATION" android:value="200"/>
+            <meta-data android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY" android:value="ai.dionlabs.folioduet.fileprovider"/>
+            <meta-data android:name="android.support.customtabs.trusted.FALLBACK_STRATEGY" android:value="customtabs"/>
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+            <intent-filter android:autoVerify="true"><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><category android:name="android.intent.category.BROWSABLE"/><data android:scheme="https" android:host="folioduet.dionlabs.ai"/></intent-filter>
+        </activity>
+        <activity android:name="com.google.androidbrowserhelper.trusted.FocusActivity"/>
+        <activity android:name="com.google.androidbrowserhelper.trusted.ManageDataLauncherActivity" android:exported="false">
+            <meta-data android:name="android.support.customtabs.trusted.MANAGE_SPACE_URL" android:value="https://folioduet.dionlabs.ai"/>
+        </activity>
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="ai.dionlabs.folioduet.fileprovider" android:grantUriPermissions="true" android:exported="false">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/filepaths"/>
+        </provider>
+        <service android:name="com.google.androidbrowserhelper.trusted.DelegationService" android:exported="true" tools:ignore="ExportedService">
+            <intent-filter><action android:name="android.support.customtabs.trusted.TRUSTED_WEB_ACTIVITY_SERVICE"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
+        </service>
+    </application>
+</manifest>
