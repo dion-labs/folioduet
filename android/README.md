@@ -28,6 +28,6 @@ The Android package intentionally uses Custom Tabs as its fallback, preserving s
 
 ## Validation
 
-See docs/relaunch/android-parity.md for exercised and pending acceptance. Build/lint/signature checks and isolated API 36 emulator guest/demo rendering have passed. Fullscreen association, physical audible output, fresh Google sign-in and independent-account/device sync are not yet certified.
+See docs/relaunch/android-parity.md for exercised and pending acceptance. Build/lint/signature checks and isolated API 36 emulator guest/demo rendering have passed. Fullscreen association is verified by Google Digital Asset Links and the isolated emulator. Physical audible output, fresh Google sign-in and independent-account/device sync are not yet certified.
 
 Official library: https://github.com/GoogleChrome/android-browser-helper (2.7.3).

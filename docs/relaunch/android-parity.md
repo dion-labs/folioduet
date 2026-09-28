@@ -27,3 +27,6 @@ Do not call the APK feature-parity certified until the Android rows are exercise
 - Initial app launch failures (missing ManageDataLauncherActivity, incorrect splash provider path) were fixed and the signed artifact rebuilt before the successful run.
 - Screenshot and runtime evidence are retained under ignored local-evals/relaunch-2026-09-28/android.
 - Fullscreen association remains pending website deployment. Google account login/linking and cross-device sync remain unrun. The candidate must be described as an Android preview until these gates pass.
+
+## Production association verified
+Production deployment e340b7ff-9836-4e17-936d-e2330e918a1f (source 0c4f189) succeeded. Canonical assetlinks endpoint returns 200 application/json and exactly matches the signed release certificate. Google Digital Asset Links reports linked=true. Fresh emulator Chrome profile visibly opens the app fullscreen without the Custom Tab toolbar (verified-fullscreen.png). This supersedes the earlier pending fullscreen gate; real-account and physical-device gates remain open.
