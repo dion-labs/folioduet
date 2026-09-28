@@ -1,3 +1,4 @@
+import { extractPdfWithAnydoc } from './anydocPdf';
 import { positionedPdfMarkdown } from './pdfLayout';
 import { normalizeExtractedMarkdownPages } from './documentNormalization';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -12,6 +13,7 @@ export type PdfExtractionResult = {
   requested: PdfExtractor;
   used: PdfExtractor;
   didFallback: boolean;
+  fallbackReason?: string;
 };
 
 // Vite rewrites this worker URL for the browser bundle. Tests/Node may override
@@ -147,14 +149,16 @@ export async function extractPdfMarkdown(
   file: File,
   extractor: PdfExtractor = 'pageecho',
 ): Promise<PdfExtractionResult> {
+  let fallbackReason: string | undefined;
   if (extractor === 'anydoc') {
     try {
-      const { extractPdfWithAnydoc } = await import('./anydocPdf');
       const pages = normalizeExtractedMarkdownPages(await extractPdfWithAnydoc(file));
       if (pages.length > 0) {
         return { pages, requested: extractor, used: 'anydoc', didFallback: false };
       }
+      fallbackReason = 'AnyDoc returned no readable text.';
     } catch (error) {
+      fallbackReason = error instanceof Error ? error.message : 'AnyDoc conversion failed.';
       console.warn('[FolioDuet] AnyDoc extraction failed; using PDF.js.', error);
     }
   }
@@ -165,6 +169,7 @@ export async function extractPdfMarkdown(
     requested: extractor,
     used: 'pageecho',
     didFallback: extractor === 'anydoc',
+    ...(fallbackReason ? {fallbackReason} : {}),
   };
 }
 

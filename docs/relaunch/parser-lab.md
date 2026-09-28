@@ -31,3 +31,28 @@ PDF.js geometry is interpreted in src/v2/pdfLayout.ts. It uses baselines, font s
 Run tools/parser-lab/check-local.mjs with FOLIODUET_PLAYWRIGHT_MODULE and FOLIODUET_CHROME_BIN pointing to local Playwright/Chrome. FOLIODUET_LAB_OUTPUT chooses an ignored results directory; FOLIODUET_FULL_CONTEXT=1 exercises the complete-document mode. The runner blocks non-local network, exports exact review JSON, screenshots desktop/mobile, checks overflow and page errors.
 
 Future corpus expansion should include multi-column text, lists, tables, footnotes, figures and cross-page paragraphs. Keep independent manual references; do not bless parser output as ground truth.
+
+### Asset recovery (2026-09-28)
+
+AnyDoc loads its worker and WASM with one bounded retry for startup/download
+failures. The retry refreshes the HTTP cache for both resources. Conversion
+errors are not retried. A 20-second startup timeout also enters this recovery
+path; it stops once the worker reports that initialization completed.
+
+After repeated loading failure, the reader and workbench show an actionable
+notice. Refresh is never automatic and requires confirmation that imports have
+finished and reviews are saved. Saved library data is retained; unsaved file
+selections and workbench edits must be saved/reselected. The workbench shows the
+fallback reason. Dynamic-import load errors also show this notice; retrying
+arbitrary application imports is outside the AnyDoc retry mechanism.
+
+Production-build browser checks used synthetic PDFs and intercepted asset
+requests: normal startup, transient WASM 404, persistent WASM 404, and persistent
+worker 404. They verified a maximum of two requests, successful transient
+recovery, explained PDF.js fallback, and cancellation/dismissal without reload.
+No Firebase rules or account configuration changed.
+
+Difference highlighting compares exact words and punctuation in reading,
+Markdown, and speech views. Coral marks missing/changed reference text; green
+marks added/changed parser text. Whitespace is ignored. A toggle preserves the
+underlying text; work is bounded to 6,000 tokens per side.

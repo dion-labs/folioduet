@@ -41,6 +41,9 @@ export default defineConfig(({ mode }) => {
       : 'dionlabs-fe92e.firebaseapp.com')
 
   return {
+    // Load AnyDoc's native ESM/WASM directly in development. Worker imports
+    // must not depend on a generated optimizer file that can become stale.
+    optimizeDeps: { exclude: ['@firecrawl/anydoc-wasm'] },
     plugins: [
       v2Redirect,
       parserLabFixtures(),
